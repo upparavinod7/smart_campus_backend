@@ -5,8 +5,10 @@ const studentRoutes = require("./student.routes");
 const staffRoutes = require("./staff.routes");
 const departmentRoutes = require("./department.routes");
 const blockRoutes = require("./block.routes");
-const classroomRoutes = require("./classroom.routes")
+const classroomRoutes = require("./classroom.routes");
 const attendanceSessionRoutes = require("./attendanceSession.routes");
+const attendanceRoutes = require("./attendance.routes");
+
 const router = express.Router();
 
 router.get("/test", (req, res) => {
@@ -20,8 +22,9 @@ router.use("/auth", authRoutes);
 router.use("/students", studentRoutes);
 router.use("/staff", staffRoutes);
 router.use("/departments", departmentRoutes);
-router.use("/blocks", blockRoutes)
-router.use('/classrooms', classroomRoutes)
-router.use("/attendance/sessions", attendanceSessionRoutes)
+router.use("/blocks", blockRoutes);
+router.use("/classrooms", classroomRoutes);
+router.use("/attendance/sessions", attendanceSessionRoutes);
+router.use("/attendance", attendanceRoutes);
 
 module.exports = router;
