@@ -415,7 +415,6 @@ const finalizeAttendanceSession = async (req, res) => {
       message: "Attendance session finalized successfully",
       data: updatedSessions[0],
     });
-
   } catch (error) {
     console.error("Finalize attendance session error:", error);
 
@@ -456,9 +455,193 @@ const getAttendanceSessionStatus = async (req, res) => {
       message: "Attendance session status retrieved successfully",
       data: sessions[0],
     });
-
   } catch (error) {
     console.error("Get attendance session status error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const getAttendanceSessionPresencePool = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    // Check whether the attendance session exists
+    const [sessions] = await pool.query(
+      `
+      SELECT
+        session_id,
+        slot_id,
+        session_date,
+        faculty_id,
+        classroom_id,
+        status
+      FROM class_sessions
+      WHERE session_id = ?
+      LIMIT 1
+      `,
+      [sessionId],
+    );
+
+    if (sessions.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Attendance session not found",
+      });
+    }
+
+    const session = sessions[0];
+
+    // Get attendance pool statistics
+    const [poolStats] = await pool.query(
+      `
+      SELECT
+        COUNT(DISTINCT e.enrollment_id) AS total_members,
+
+        COUNT(
+          DISTINCT CASE
+            WHEN ar.status = 'PRESENT'
+            THEN e.enrollment_id
+          END
+        ) AS present_count,
+
+        COUNT(
+          DISTINCT CASE
+            WHEN ar.status = 'LATE'
+            THEN e.enrollment_id
+          END
+        ) AS late_count,
+
+        COUNT(
+          DISTINCT CASE
+            WHEN ar.status = 'ABSENT'
+            THEN e.enrollment_id
+          END
+        ) AS absent_count
+
+      FROM enrollments e
+
+      LEFT JOIN attendance_records ar
+        ON ar.enrollment_id = e.enrollment_id
+        AND ar.session_id = ?
+
+      WHERE e.section_id = (
+        SELECT ts.section_id
+        FROM timetable_slots ts
+        WHERE ts.slot_id = ?
+        LIMIT 1
+      )
+
+      AND e.status = 'REGISTERED'
+      `,
+      [sessionId, session.slot_id],
+    );
+
+    const stats = poolStats[0];
+
+    return res.status(200).json({
+      success: true,
+      message: "Attendance session presence pool retrieved successfully",
+      data: {
+        session_id: session.session_id,
+        session_status: session.status,
+        total_members: Number(stats.total_members),
+        present_count: Number(stats.present_count),
+        late_count: Number(stats.late_count),
+        absent_count: Number(stats.absent_count),
+      },
+    });
+  } catch (error) {
+    console.error("Get attendance session presence pool error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const getAttendanceSessionPresencePoolMembers = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    // Check whether session exists
+    const [sessions] = await pool.query(
+      `
+      SELECT
+        session_id,
+        slot_id,
+        status
+      FROM class_sessions
+      WHERE session_id = ?
+      LIMIT 1
+      `,
+      [sessionId],
+    );
+
+    if (sessions.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Attendance session not found",
+      });
+    }
+
+    const session = sessions[0];
+
+    const [members] = await pool.query(
+      `
+      SELECT
+        e.enrollment_id,
+        s.student_id,
+        s.register_no,
+        s.full_name,
+        s.email,
+        e.status AS enrollment_status,
+
+        COALESCE(ar.status, 'ABSENT') AS attendance_status,
+
+        ar.source,
+        ar.rfid_card_id,
+        ar.fingerprint_template_id,
+        ar.device_id,
+        ar.marked_at
+
+      FROM timetable_slots ts
+
+      INNER JOIN enrollments e
+        ON e.section_id = ts.section_id
+
+      INNER JOIN students s
+        ON s.student_id = e.student_id
+
+      LEFT JOIN attendance_records ar
+        ON ar.enrollment_id = e.enrollment_id
+        AND ar.session_id = ?
+
+      WHERE ts.slot_id = ?
+        AND e.status = 'REGISTERED'
+
+      ORDER BY s.student_id
+      `,
+      [sessionId, session.slot_id],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Attendance session presence pool members retrieved successfully",
+      data: {
+        session_id: session.session_id,
+        session_status: session.status,
+        total_members: members.length,
+        members,
+      },
+    });
+  } catch (error) {
+    console.error("Get attendance session presence pool members error:", error);
 
     return res.status(500).json({
       success: false,
@@ -473,5 +656,7 @@ module.exports = {
   createAttendanceSession,
   startAttendanceSession,
   finalizeAttendanceSession,
-  getAttendanceSessionStatus
+  getAttendanceSessionStatus,
+  getAttendanceSessionPresencePool,
+  getAttendanceSessionPresencePoolMembers
 };
