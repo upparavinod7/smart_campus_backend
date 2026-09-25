@@ -6,7 +6,7 @@ const staffRoutes = require("./staff.routes");
 const departmentRoutes = require("./department.routes");
 const blockRoutes = require("./block.routes");
 const classroomRoutes = require("./classroom.routes")
-
+const attendanceSessionRoutes = require("./attendanceSession.routes");
 const router = express.Router();
 
 router.get("/test", (req, res) => {
@@ -22,5 +22,6 @@ router.use("/staff", staffRoutes);
 router.use("/departments", departmentRoutes);
 router.use("/blocks", blockRoutes)
 router.use('/classrooms', classroomRoutes)
+router.use("/attendance/sessions", attendanceSessionRoutes)
 
 module.exports = router;
