@@ -438,9 +438,96 @@ const getStudentDashboard = async (req, res) => {
   }
 };
 
+const getMyTimetable = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const [timetable] = await pool.query(
+      `
+      SELECT
+        ts.slot_id,
+        ts.day_of_week,
+        ts.start_time,
+        ts.end_time,
+        ts.effective_from,
+        ts.effective_to,
+
+        sub.subject_id,
+        sub.subject_code,
+        sub.name AS subject_name,
+
+        sec.section_id,
+        sec.section_code,
+
+        f.full_name AS faculty_name,
+        c.room_no AS classroom,
+
+        e.status AS enrollment_status
+
+      FROM users u
+
+      JOIN enrollments e
+        ON e.student_id = u.student_id
+
+      JOIN sections sec
+        ON sec.section_id = e.section_id
+
+      JOIN course_offerings co
+        ON co.offering_id = sec.offering_id
+
+      JOIN subjects sub
+        ON sub.subject_id = co.subject_id
+
+      JOIN timetable_slots ts
+        ON ts.section_id = sec.section_id
+
+      LEFT JOIN faculty f
+        ON f.faculty_id = ts.faculty_id
+
+      LEFT JOIN classrooms c
+        ON c.classroom_id = ts.classroom_id
+
+      WHERE u.user_id = ?
+        AND u.role = 'STUDENT'
+        AND u.is_active = 1
+        AND e.status = 'REGISTERED'
+        AND ts.is_active = 1
+        AND (
+          ts.effective_from IS NULL
+          OR ts.effective_from <= CURDATE()
+        )
+        AND (
+          ts.effective_to IS NULL
+          OR ts.effective_to >= CURDATE()
+        )
+
+      ORDER BY
+        ts.day_of_week ASC,
+        ts.start_time ASC
+      `,
+      [userId],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Student timetable retrieved successfully",
+      count: timetable.length,
+      data: timetable,
+    });
+  } catch (error) {
+    console.error("Get student timetable error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve student timetable",
+    });
+  }
+};
+
 module.exports = {
   getMyProfile,
   getMyAttendance,
   getMyAttendanceSummary,
   getStudentDashboard,
+  getMyTimetable,
 };
