@@ -5,6 +5,7 @@ const {
   getMyAttendance,
   getMyAttendanceSummary,
   getStudentDashboard,
+  getMyCourses,
 } = require("../controllers/studentPortal.controller");
 
 const authenticateToken = require("../middleware/auth.middleware");
@@ -37,6 +38,13 @@ router.get(
   authenticateToken,
   authorizeRoles("STUDENT"),
   getStudentDashboard,
+);
+
+router.get(
+  "/me/courses",
+  authenticateToken,
+  authorizeRoles("STUDENT"),
+  getMyCourses,
 );
 
 module.exports = router;

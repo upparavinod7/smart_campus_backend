@@ -438,9 +438,72 @@ const getStudentDashboard = async (req, res) => {
   }
 };
 
+const getMyCourses = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const [courses] = await pool.query(
+      `
+      SELECT
+        e.enrollment_id,
+        e.registration_type,
+        e.status AS enrollment_status,
+        e.registered_on,
+
+        sub.subject_id,
+        sub.subject_code,
+        sub.name AS subject_name,
+        sub.credits,
+        sub.delivery_type,
+
+        co.offering_id,
+
+        sec.section_id,
+        sec.section_code
+
+      FROM users u
+
+      JOIN enrollments e
+        ON e.student_id = u.student_id
+
+      JOIN sections sec
+        ON sec.section_id = e.section_id
+
+      JOIN course_offerings co
+        ON co.offering_id = sec.offering_id
+
+      JOIN subjects sub
+        ON sub.subject_id = co.subject_id
+
+      WHERE u.user_id = ?
+        AND u.role = 'STUDENT'
+        AND u.is_active = 1
+        AND e.status = 'REGISTERED'
+
+      ORDER BY sub.subject_code ASC
+      `,
+      [userId],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Student courses retrieved successfully",
+      count: courses.length,
+      data: courses,
+    });
+  } catch (error) {
+    console.error("Get student courses error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve student courses",
+    });
+  }
+};
 module.exports = {
   getMyProfile,
   getMyAttendance,
   getMyAttendanceSummary,
   getStudentDashboard,
+  getMyCourses
 };
