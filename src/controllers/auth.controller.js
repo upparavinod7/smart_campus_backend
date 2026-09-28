@@ -18,16 +18,17 @@ const login = async (req, res) => {
 
     const [users] = await pool.query(
       `SELECT
-                user_id,
-                username,
-                email,
-                password_hash,
-                role,
-                faculty_id,
-                is_active
-             FROM users
-             WHERE username = ?
-             LIMIT 1`,
+      user_id,
+      username,
+      email,
+      password_hash,
+      role,
+      faculty_id,
+      student_id,
+      is_active
+      FROM users
+      WHERE username = ?
+      LIMIT 1`,
       [username],
     );
 
@@ -60,6 +61,8 @@ const login = async (req, res) => {
         user_id: user.user_id,
         username: user.username,
         role: user.role,
+        faculty_id: user.faculty_id,
+        student_id: user.student_id,
       },
       process.env.JWT_SECRET,
       {
@@ -75,6 +78,7 @@ const login = async (req, res) => {
         email: user.email,
         role: user.role,
         faculty_id: user.faculty_id,
+        student_id: user.student_id,
       },
       token,
     });
@@ -88,22 +92,22 @@ const login = async (req, res) => {
   }
 };
 const getMe = async (req, res) => {
-    try {
-        return res.status(200).json({
-            success: true,
-            message: "User authenticated successfully",
-            data: req.user
-        });
-    } catch (error) {
-        console.error("Get user error:", error);
+  try {
+    return res.status(200).json({
+      success: true,
+      message: "User authenticated successfully",
+      data: req.user,
+    });
+  } catch (error) {
+    console.error("Get user error:", error);
 
-        return res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
-    }
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
 };
 module.exports = {
   login,
-  getMe
+  getMe,
 };
