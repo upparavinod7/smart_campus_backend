@@ -9,6 +9,7 @@ const classroomRoutes = require("./classroom.routes");
 const attendanceSessionRoutes = require("./attendanceSession.routes");
 const attendanceRoutes = require("./attendance.routes");
 const studentPortalRoutes = require("./studentPortal.routes");
+const adminRoutes = require("./admin.routes");
 
 const router = express.Router();
 
@@ -22,6 +23,9 @@ router.get("/test", (req, res) => {
 
 // Authentication
 router.use("/auth", authRoutes);
+
+// Admin dashboard & management
+router.use("/admin", adminRoutes);
 
 // Admin student management
 router.use("/students", studentRoutes);
