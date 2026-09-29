@@ -3,6 +3,7 @@ const express = require("express");
 const authRoutes = require("./auth.routes");
 const studentRoutes = require("./student.routes");
 const staffRoutes = require("./staff.routes");
+const facultyRoutes = require("./faculty.routes");
 const departmentRoutes = require("./department.routes");
 const blockRoutes = require("./block.routes");
 const classroomRoutes = require("./classroom.routes");
@@ -30,8 +31,9 @@ router.use("/admin", adminRoutes);
 // Admin student management
 router.use("/students", studentRoutes);
 
-// Staff management
+// Staff and faculty management
 router.use("/staff", staffRoutes);
+router.use("/faculty", facultyRoutes);
 
 // Department management
 router.use("/departments", departmentRoutes);
