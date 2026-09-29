@@ -93,10 +93,41 @@ const login = async (req, res) => {
 };
 const getMe = async (req, res) => {
   try {
+    const [users] = await pool.query(
+      `SELECT
+        user_id,
+        username,
+        email,
+        role,
+        faculty_id,
+        student_id,
+        is_active
+      FROM users
+      WHERE user_id = ?
+      LIMIT 1`,
+      [req.user.user_id],
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.status(401).json({
+        success: false,
+        message: "User account is invalid or inactive",
+      });
+    }
+
+    const user = users[0];
+
     return res.status(200).json({
       success: true,
       message: "User authenticated successfully",
-      data: req.user,
+      data: {
+        user_id: user.user_id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        faculty_id: user.faculty_id,
+        student_id: user.student_id,
+      },
     });
   } catch (error) {
     console.error("Get user error:", error);

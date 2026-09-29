@@ -260,3 +260,57 @@ test("Student CRUD Full Lifecycle: List, Create, GetById, Update, Duplicate Chec
   assert.equal(verifyRes.status, 404);
   assert.equal(verifyBody.success, false);
 });
+
+// Authentication Persistence & Session Restoration Tests (fix/auth-refresh-persistence)
+test("Session Restoration: GET /api/v1/auth/me with valid token returns user identity and role", async () => {
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.data.username, "admin");
+  assert.equal(body.data.role, "ADMIN");
+  assert.equal(body.data.password, undefined);
+  assert.equal(body.data.password_hash, undefined);
+});
+
+test("Session Restoration: GET /api/v1/auth/me with expired token returns 401", async () => {
+  const expiredToken = jwt.sign(
+    { user_id: 1, username: "admin", role: "ADMIN" },
+    process.env.JWT_SECRET,
+    { expiresIn: "-10s" },
+  );
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { Authorization: `Bearer ${expiredToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Invalid or expired token");
+});
+
+test("Session Restoration: GET /api/v1/auth/me with malformed token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { Authorization: "Bearer this.is.an.invalid.token" },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+});
+
+test("Session Restoration: GET /api/v1/auth/me rejects non-existent or deactivated user", async () => {
+  const ghostToken = jwt.sign(
+    { user_id: 999999, username: "ghost", role: "ADMIN" },
+    process.env.JWT_SECRET,
+    { expiresIn: "1h" },
+  );
+  const res = await fetch(`${baseUrl}/auth/me`, {
+    headers: { Authorization: `Bearer ${ghostToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.match(body.message, /invalid or inactive/i);
+});
+
