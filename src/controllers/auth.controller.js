@@ -1,5 +1,6 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 
 const pool = require("../config/mysql");
 
@@ -56,8 +57,11 @@ const login = async (req, res) => {
         message: "Invalid username or password",
       });
     }
+    const jti = crypto.randomUUID();
+
     const token = jwt.sign(
       {
+        jti,
         user_id: user.user_id,
         username: user.username,
         role: user.role,
@@ -138,7 +142,42 @@ const getMe = async (req, res) => {
     });
   }
 };
+
+const logout = async (req, res) => {
+  try {
+    const { jti, user_id, exp } = req.user || {};
+
+    if (!jti || !user_id || !exp) {
+      return res.status(400).json({
+        success: false,
+        message: "Token cannot be revoked: missing token identifier",
+      });
+    }
+
+    const expiresAt = new Date(exp * 1000);
+
+    await pool.query(
+      `INSERT INTO revoked_tokens (jti, user_id, expires_at)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE revoked_at = CURRENT_TIMESTAMP`,
+      [jti, user_id, expiresAt],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Logout successful and token revoked",
+    });
+  } catch (error) {
+    console.error("Logout error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to revoke session",
+    });
+  }
+};
 module.exports = {
   login,
   getMe,
+  logout,
 };
