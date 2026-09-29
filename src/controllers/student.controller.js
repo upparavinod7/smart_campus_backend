@@ -6,17 +6,19 @@ const getStudents = async (req, res) => {
   try {
     const [students] = await pool.query(`
       SELECT
-        student_id,
-        register_no,
-        full_name,
-        email,
-        phone,
-        batch_id,
-        status,
-        created_at,
-        updated_at
-      FROM students
-      ORDER BY student_id ASC
+        s.student_id,
+        s.register_no,
+        s.full_name,
+        s.email,
+        s.phone,
+        s.batch_id,
+        b.label AS batch_label,
+        s.status,
+        s.created_at,
+        s.updated_at
+      FROM students s
+      LEFT JOIN batches b ON s.batch_id = b.batch_id
+      ORDER BY s.student_id ASC
     `);
 
     return res.status(200).json({
@@ -44,17 +46,19 @@ const getStudentById = async (req, res) => {
     const [students] = await pool.query(
       `
       SELECT
-        student_id,
-        register_no,
-        full_name,
-        email,
-        phone,
-        batch_id,
-        status,
-        created_at,
-        updated_at
-      FROM students
-      WHERE student_id = ?
+        s.student_id,
+        s.register_no,
+        s.full_name,
+        s.email,
+        s.phone,
+        s.batch_id,
+        b.label AS batch_label,
+        s.status,
+        s.created_at,
+        s.updated_at
+      FROM students s
+      LEFT JOIN batches b ON s.batch_id = b.batch_id
+      WHERE s.student_id = ?
       LIMIT 1
       `,
       [id],
