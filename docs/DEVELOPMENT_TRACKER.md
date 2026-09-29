@@ -3,7 +3,7 @@
 > **Authoritative Location**: `smart_campus_backend/docs/DEVELOPMENT_TRACKER.md`  
 > **Institution**: Joy University  
 > **System**: Smart Campus ERP System  
-> **Last Verified Update**: 2026-09-28T19:22:00+05:30  
+> **Last Verified Update**: 2026-09-29T09:40:00+05:30  
 
 ---
 
@@ -12,15 +12,15 @@
 | Metric | Count |
 | :--- | :--- |
 | **Total Identified Features** | 12 |
-| **Not Started** | 2 |
+| **Not Started** | 1 |
 | **In Progress** | 0 |
-| **Implemented** | 4 |
-| **Tested** | 6 |
-| **Pushed** | 4 |
-| **Pull Requests Created** | 4 (URLs generated) |
+| **Implemented** | 3 |
+| **Tested** | 7 |
+| **Pushed** | 5 |
+| **Pull Requests Created** | 5 (URLs generated) |
 | **Merged** | 0 |
 | **Blocked Work** | 0 |
-| **Next Recommended Feature** | `FEAT-006`: Faculty and Staff Management (CRUD) |
+| **Next Recommended Feature** | `FEAT-007`: Department Management (CRUD) |
 
 ---
 
@@ -173,29 +173,32 @@
 ### `FEAT-006`: Faculty and Staff Management (CRUD)
 - **Feature ID**: `FEAT-006`
 - **Feature Name**: Faculty and Staff Management (CRUD)
-- **Module**: Faculty Management
-- **Backend Status**: `IMPLEMENTED`
-- **Frontend Status**: `NOT_STARTED`
+- **Module**: Faculty & Staff Management
+- **Backend Status**: `TESTED`
+- **Frontend Status**: `PUSHED`
 - **API Endpoints**:
   - `GET /api/v1/staff/t`
   - `GET /api/v1/staff/t/:id`
   - `POST /api/v1/staff/t`
   - `PUT /api/v1/staff/t/:id`
   - `DELETE /api/v1/staff/t/:id`
-- **Backend Branch**: `feature/admin-faculty-management`
-- **Backend Commit SHA**: TBD
-- **Frontend Branch**: `feature/admin-faculty-management`
-- **Frontend Commit SHA**: TBD
-- **Backend Test Results**: Backend controller verified
-- **Frontend Build/Test Results**: Pending UI implementation
-- **Integration Test Results**: Pending
-- **Backend Push Status**: `NOT_STARTED`
-- **Frontend Push Status**: `NOT_STARTED`
-- **Pull Request URLs**: N/A
+  - `GET /api/v1/faculty` (and related `/faculty` aliases)
+- **Backend Branch**: `feature/admin-faculty-staff-management`
+- **Backend Commit SHA**: `6540fa0`
+- **Frontend Branch**: `feature/admin-faculty-staff-management`
+- **Frontend Commit SHA**: `1c160bf`
+- **Backend Test Results**: Verified 22 automated integration tests passing (`node --test src/test/api.test.js`) covering RBAC (401/403 for unauthorized & STUDENT roles), validation (400 for required fields, invalid department_id, invalid designation_id), conflict handling (409 for duplicate employee_code and email), full CRUD lifecycle, joins for department & designation metadata, soft deactivation (`is_active = 0`), and repeat deactivation rejection (400)
+- **Frontend Build/Test Results**: Verified `npm run lint` (0 errors) and production build `npm run build` (0 errors)
+- **Integration Test Results**: Verified complete admin CRUD interface using shared `DataTable`, `Modal`, `Alert`, `Badge`, and `LoadingSpinner`. Includes staff directory with search & pagination, profile details modal, create & edit modals with department and designation dropdowns, and soft deactivation confirmation modal.
+- **Backend Push Status**: `PUSHED`
+- **Frontend Push Status**: `PUSHED`
+- **Pull Request URLs**:
+  - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/feature/admin-faculty-staff-management`
+  - Frontend: `https://github.com/sahayaglancy35-blip/smart_campus_frontend/pull/new/feature/admin-faculty-staff-management`
 - **Merge Status**: Open
 - **Blockers**: None
-- **Next Steps**: Implement Faculty directory, Create/Edit forms with department & designation dropdowns
-- **Last Verified Update**: 2026-09-28T19:22:00+05:30
+- **Next Steps**: Awaiting user approval to merge; proceed to FEAT-007 (Department Management CRUD)
+- **Last Verified Update**: 2026-09-29T09:40:00+05:30
 
 ---
 
@@ -391,11 +394,11 @@
 | `POST` | `/api/v1/students` | `ADMIN` | Yes | Create student record | `INTEGRATED` | `StudentManagementView.jsx` (Create Modal) |
 | `PUT` | `/api/v1/students/:id` | `ADMIN` | Yes | Update student record | `INTEGRATED` | `StudentManagementView.jsx` (Edit Modal) |
 | `DELETE` | `/api/v1/students/:id` | `ADMIN` | Yes | Delete student record | `INTEGRATED` | `StudentManagementView.jsx` (Delete Modal) |
-| `GET` | `/api/v1/staff/t` | Authenticated | Yes | List faculty members | `NOT_INTEGRATED` | Pending Faculty Management |
-| `GET` | `/api/v1/staff/t/:id` | Authenticated | Yes | Faculty member details | `NOT_INTEGRATED` | Pending Faculty Profile |
-| `POST` | `/api/v1/staff/t` | `ADMIN` | Yes | Create faculty profile | `NOT_INTEGRATED` | Pending Create Faculty Form |
-| `PUT` | `/api/v1/staff/t/:id` | `ADMIN` | Yes | Update faculty profile | `NOT_INTEGRATED` | Pending Edit Faculty Form |
-| `DELETE` | `/api/v1/staff/t/:id` | `ADMIN` | Yes | Deactivate faculty profile | `NOT_INTEGRATED` | Pending Deactivate Action |
+| `GET` | `/api/v1/staff/t` | Authenticated | Yes | List faculty members | `INTEGRATED` | `FacultyManagementView.jsx` |
+| `GET` | `/api/v1/staff/t/:id` | Authenticated | Yes | Faculty member details | `INTEGRATED` | `FacultyManagementView.jsx` (Detail Modal) |
+| `POST` | `/api/v1/staff/t` | `ADMIN` | Yes | Create faculty profile | `INTEGRATED` | `FacultyManagementView.jsx` (Create Modal) |
+| `PUT` | `/api/v1/staff/t/:id` | `ADMIN` | Yes | Update faculty profile | `INTEGRATED` | `FacultyManagementView.jsx` (Edit Modal) |
+| `DELETE` | `/api/v1/staff/t/:id` | `ADMIN` | Yes | Deactivate faculty profile | `INTEGRATED` | `FacultyManagementView.jsx` (Deactivate Modal) |
 | `GET` | `/api/v1/departments` | Authenticated | Yes | List academic departments | `NOT_INTEGRATED` | Pending Department Management |
 | `GET` | `/api/v1/departments/:id` | Authenticated | Yes | Department details | `NOT_INTEGRATED` | Pending Department View |
 | `POST` | `/api/v1/departments` | `ADMIN` | Yes | Create academic department | `NOT_INTEGRATED` | Pending Department Form |
@@ -422,7 +425,7 @@
 | `GET` | `/api/v1/attendance/staf/t/:facultyId` | Authenticated | Yes | Faculty attendance sessions | `NOT_INTEGRATED` | Pending Faculty Sessions |
 | `POST` | `/api/v1/attendance` | `ADMIN`, `FACULTY` | Yes | Mark manual attendance | `NOT_INTEGRATED` | Pending Attendance Marker |
 | `POST` | `/api/v1/attendance/:id/override` | `ADMIN`, `FACULTY` | Yes | Override attendance status | `NOT_INTEGRATED` | Pending Override Dialog |
-| `GET` | `/api/v1/admin/dashboard-stats` | `ADMIN` | Yes | Institutional aggregate metrics | `BACKEND_MISSING` | Pending Admin Dashboard |
+| `GET` | `/api/v1/admin/dashboard-stats` | `ADMIN` | Yes | Institutional aggregate metrics | `INTEGRATED` | `AdminDashboardOverview.jsx` |
 | `GET` | `/api/v1/academics/subjects` | Authenticated | Yes | Subjects catalog | `BACKEND_MISSING` | Pending Academics View |
 | `GET` | `/api/v1/academics/courses` | Authenticated | Yes | Course offerings | `BACKEND_MISSING` | Pending Course Offerings |
 | `*` | `/api/v1/library/*` | - | - | Library management | `OUT_OF_SCOPE / BACKEND_MISSING` | N/A |
