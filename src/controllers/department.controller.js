@@ -1,21 +1,55 @@
 const pool = require("../config/mysql");
 
-// GET /api/v1/departments
+/**
+ * GET /api/v1/departments
+ * Retrieves list of academic departments with optional filters and school joins.
+ */
 const getDepartments = async (req, res) => {
   try {
+    const { school_id, is_active, search } = req.query;
+
+    const conditions = [];
+    const params = [];
+
+    if (school_id !== undefined && school_id !== "") {
+      conditions.push("d.school_id = ?");
+      params.push(Number(school_id));
+    }
+
+    if (is_active !== undefined && is_active !== "") {
+      const activeVal =
+        is_active === "true" || is_active === "1" || is_active === 1 ? 1 : 0;
+      conditions.push("d.is_active = ?");
+      params.push(activeVal);
+    }
+
+    if (search && search.trim() !== "") {
+      conditions.push("(d.name LIKE ? OR d.code LIKE ?)");
+      const term = `%${search.trim()}%`;
+      params.push(term, term);
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
     const [departments] = await pool.query(
       `
-            SELECT
-                department_id,
-                school_id,
-                name,
-                code,
-                is_active,
-                created_at,
-                updated_at
-            FROM departments
-            ORDER BY department_id
-            `,
+      SELECT
+          d.department_id,
+          d.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
+          d.name,
+          d.code,
+          d.is_active,
+          d.created_at,
+          d.updated_at
+      FROM departments d
+      LEFT JOIN schools s ON d.school_id = s.school_id
+      ${whereClause}
+      ORDER BY d.department_id ASC
+      `,
+      params,
     );
 
     return res.status(200).json({
@@ -33,25 +67,31 @@ const getDepartments = async (req, res) => {
   }
 };
 
-// GET /api/v1/departments/:id
+/**
+ * GET /api/v1/departments/:id
+ * Retrieves a single department by its ID including school metadata.
+ */
 const getDepartmentById = async (req, res) => {
   try {
     const { id } = req.params;
 
     const [departments] = await pool.query(
       `
-            SELECT
-                department_id,
-                school_id,
-                name,
-                code,
-                is_active,
-                created_at,
-                updated_at
-            FROM departments
-            WHERE department_id = ?
-            LIMIT 1
-            `,
+      SELECT
+          d.department_id,
+          d.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
+          d.name,
+          d.code,
+          d.is_active,
+          d.created_at,
+          d.updated_at
+      FROM departments d
+      LEFT JOIN schools s ON d.school_id = s.school_id
+      WHERE d.department_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -77,27 +117,28 @@ const getDepartmentById = async (req, res) => {
   }
 };
 
-// POST /api/v1/departments
+/**
+ * POST /api/v1/departments
+ * Creates a new department. ADMIN only.
+ */
 const createDepartment = async (req, res) => {
   try {
-    const { school_id, name, code, is_active } = req.body;
+    const { school_id, name, code, is_active } = req.body || {};
 
-    // Required fields
-    if (!school_id || !name) {
+    // Validate required fields
+    if (!school_id || !name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({
         success: false,
         message: "school_id and name are required",
       });
     }
 
-    // Check school exists
+    const trimmedName = name.trim();
+    const trimmedCode = code && typeof code === "string" ? code.trim() : null;
+
+    // Validate foreign key: school_id must exist in schools
     const [schools] = await pool.query(
-      `
-            SELECT school_id
-            FROM schools
-            WHERE school_id = ?
-            LIMIT 1
-            `,
+      `SELECT school_id, name, code FROM schools WHERE school_id = ? LIMIT 1`,
       [school_id],
     );
 
@@ -108,31 +149,52 @@ const createDepartment = async (req, res) => {
       });
     }
 
-    // Create department
+    const activeStatus = is_active !== undefined ? (Boolean(is_active) ? 1 : 0) : 1;
+
+    // Insert new department
     const [result] = await pool.query(
       `
-            INSERT INTO departments
-                (school_id, name, code, is_active)
-            VALUES
-                (?, ?, ?, ?)
-            `,
-      [school_id, name, code ?? null, is_active ?? 1],
+      INSERT INTO departments (school_id, name, code, is_active)
+      VALUES (?, ?, ?, ?)
+      `,
+      [school_id, trimmedName, trimmedCode, activeStatus],
+    );
+
+    // Retrieve inserted record with school join
+    const [createdDept] = await pool.query(
+      `
+      SELECT
+          d.department_id,
+          d.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
+          d.name,
+          d.code,
+          d.is_active,
+          d.created_at,
+          d.updated_at
+      FROM departments d
+      LEFT JOIN schools s ON d.school_id = s.school_id
+      WHERE d.department_id = ?
+      LIMIT 1
+      `,
+      [result.insertId],
     );
 
     return res.status(201).json({
       success: true,
       message: "Department created successfully",
-      data: {
-        department_id: result.insertId,
-        school_id,
-        name,
-        code: code ?? null,
-        is_active: is_active ?? 1,
-      },
+      data: createdDept[0],
     });
   } catch (error) {
-    console.error("Create department error:", error);
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "A department with this name already exists in this school",
+      });
+    }
 
+    console.error("Create department error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -140,42 +202,35 @@ const createDepartment = async (req, res) => {
   }
 };
 
-// PUT /api/v1/departments/:id
+/**
+ * PUT /api/v1/departments/:id
+ * Updates an existing department. ADMIN only.
+ */
 const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
+    const { school_id, name, code, is_active } = req.body || {};
 
-    const { school_id, name, code, is_active } = req.body;
-
-    // Check department exists
-    const [existingDepartments] = await pool.query(
-      `
-            SELECT *
-            FROM departments
-            WHERE department_id = ?
-            LIMIT 1
-            `,
+    // Check if department exists
+    const [existing] = await pool.query(
+      `SELECT * FROM departments WHERE department_id = ? LIMIT 1`,
       [id],
     );
 
-    if (existingDepartments.length === 0) {
+    if (existing.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Department not found",
       });
     }
 
-    const department = existingDepartments[0];
+    const current = existing[0];
 
-    // Validate school if provided
+    // Validate school_id if provided
+    let targetSchoolId = current.school_id;
     if (school_id !== undefined) {
       const [schools] = await pool.query(
-        `
-                SELECT school_id
-                FROM schools
-                WHERE school_id = ?
-                LIMIT 1
-                `,
+        `SELECT school_id FROM schools WHERE school_id = ? LIMIT 1`,
         [school_id],
       );
 
@@ -185,45 +240,70 @@ const updateDepartment = async (req, res) => {
           message: "Invalid school_id",
         });
       }
+      targetSchoolId = Number(school_id);
     }
 
-    const updatedDepartment = {
-      school_id: school_id ?? department.school_id,
-      name: name ?? department.name,
-      code: code ?? department.code,
-      is_active: is_active ?? department.is_active,
-    };
+    const targetName =
+      name !== undefined && typeof name === "string" ? name.trim() : current.name;
+    const targetCode =
+      code !== undefined
+        ? code === null
+          ? null
+          : typeof code === "string"
+          ? code.trim()
+          : current.code
+        : current.code;
+    const targetIsActive =
+      is_active !== undefined ? (Boolean(is_active) ? 1 : 0) : current.is_active;
 
     await pool.query(
       `
-            UPDATE departments
-            SET
-                school_id = ?,
-                name = ?,
-                code = ?,
-                is_active = ?
-            WHERE department_id = ?
-            `,
-      [
-        updatedDepartment.school_id,
-        updatedDepartment.name,
-        updatedDepartment.code,
-        updatedDepartment.is_active,
-        id,
-      ],
+      UPDATE departments
+      SET
+          school_id = ?,
+          name = ?,
+          code = ?,
+          is_active = ?
+      WHERE department_id = ?
+      `,
+      [targetSchoolId, targetName, targetCode, targetIsActive, id],
+    );
+
+    // Retrieve updated record with school join
+    const [updated] = await pool.query(
+      `
+      SELECT
+          d.department_id,
+          d.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
+          d.name,
+          d.code,
+          d.is_active,
+          d.created_at,
+          d.updated_at
+      FROM departments d
+      LEFT JOIN schools s ON d.school_id = s.school_id
+      WHERE d.department_id = ?
+      LIMIT 1
+      `,
+      [id],
     );
 
     return res.status(200).json({
       success: true,
       message: "Department updated successfully",
-      data: {
-        department_id: Number(id),
-        ...updatedDepartment,
-      },
+      data: updated[0],
     });
   } catch (error) {
-    console.error("Update department error:", error);
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "A department with this name already exists in this school",
+      });
+    }
 
+    console.error("Update department error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -231,18 +311,16 @@ const updateDepartment = async (req, res) => {
   }
 };
 
-// DELETE /api/v1/departments/:id
+/**
+ * DELETE /api/v1/departments/:id
+ * Soft deactivates a department (is_active = 0). ADMIN only.
+ */
 const deleteDepartment = async (req, res) => {
   try {
     const { id } = req.params;
 
     const [departments] = await pool.query(
-      `
-            SELECT department_id, is_active
-            FROM departments
-            WHERE department_id = ?
-            LIMIT 1
-            `,
+      `SELECT department_id, is_active FROM departments WHERE department_id = ? LIMIT 1`,
       [id],
     );
 
@@ -261,11 +339,7 @@ const deleteDepartment = async (req, res) => {
     }
 
     await pool.query(
-      `
-            UPDATE departments
-            SET is_active = 0
-            WHERE department_id = ?
-            `,
+      `UPDATE departments SET is_active = 0 WHERE department_id = ?`,
       [id],
     );
 

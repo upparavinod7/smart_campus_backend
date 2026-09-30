@@ -577,4 +577,275 @@ test("Token Revocation: Cleanup routine purges naturally expired revoked tokens"
   assert.equal(rows.length, 0);
 });
 
+// --- FEAT-007: Department Management (CRUD) Integration Tests ---
+
+test("Department CRUD: GET /api/v1/departments without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/departments`);
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Authorization token is required");
+});
+
+test("Department CRUD: GET /api/v1/departments/:id without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/departments/1`);
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Authorization token is required");
+});
+
+test("Department CRUD RBAC: POST /api/v1/departments with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/departments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({
+      school_id: 1,
+      name: "Student Attempt Dept",
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Department CRUD RBAC: PUT /api/v1/departments/:id with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/departments/1`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({
+      name: "Unauthorized Update",
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+});
+
+test("Department CRUD RBAC: DELETE /api/v1/departments/:id with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/departments/1`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+});
+
+test("Department CRUD Validation: POST /api/v1/departments requires school_id and name", async () => {
+  const res = await fetch(`${baseUrl}/departments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /school_id and name are required/i);
+});
+
+test("Department CRUD Validation: POST /api/v1/departments rejects invalid school_id", async () => {
+  const res = await fetch(`${baseUrl}/departments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      school_id: 999999,
+      name: `Dept_Invalid_School_${Date.now()}`,
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /invalid school_id/i);
+});
+
+test("Department CRUD Not Found: GET, PUT, and DELETE on non-existent department return 404", async () => {
+  const nonExistentId = 999999;
+
+  const getRes = await fetch(`${baseUrl}/departments/${nonExistentId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(getRes.status, 404);
+  assert.equal((await getRes.json()).success, false);
+
+  const putRes = await fetch(`${baseUrl}/departments/${nonExistentId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ name: "Does Not Exist" }),
+  });
+  assert.equal(putRes.status, 404);
+  assert.equal((await putRes.json()).success, false);
+
+  const delRes = await fetch(`${baseUrl}/departments/${nonExistentId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(delRes.status, 404);
+  assert.equal((await delRes.json()).success, false);
+});
+
+test("Department CRUD Full Lifecycle: List with joins, Filter, Create, GetById, Update, Duplicate Check, Deactivate", async () => {
+  // 1. List departments as authenticated user
+  const listRes = await fetch(`${baseUrl}/departments`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const listBody = await listRes.json();
+  assert.equal(listRes.status, 200);
+  assert.equal(listBody.success, true);
+  assert.ok(Array.isArray(listBody.data));
+  assert.ok(listBody.data.length > 0);
+  // Verify join with schools
+  const firstDept = listBody.data[0];
+  assert.ok(firstDept.school_name);
+
+  // 2. Filter departments by school_id
+  const filteredRes = await fetch(`${baseUrl}/departments?school_id=1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const filteredBody = await filteredRes.json();
+  assert.equal(filteredRes.status, 200);
+  assert.ok(filteredBody.data.every((d) => d.school_id === 1));
+
+  // 3. Create a new department
+  const uniqueName = `Dept_Test_${Date.now()}`;
+  const uniqueCode = `DPT${Date.now().toString().slice(-4)}`;
+  const createRes = await fetch(`${baseUrl}/departments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      school_id: 1,
+      name: uniqueName,
+      code: uniqueCode,
+      is_active: 1,
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  const createdId = createBody.data.department_id;
+  assert.ok(createdId);
+  assert.equal(createBody.data.name, uniqueName);
+  assert.equal(createBody.data.code, uniqueCode);
+  assert.equal(createBody.data.school_id, 1);
+  assert.ok(createBody.data.school_name);
+
+  // 4. Duplicate name in same school returns 409 Conflict
+  const dupRes = await fetch(`${baseUrl}/departments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      school_id: 1,
+      name: uniqueName,
+      code: "DUP",
+    }),
+  });
+  const dupBody = await dupRes.json();
+  assert.equal(dupRes.status, 409);
+  assert.equal(dupBody.success, false);
+  assert.match(dupBody.message, /already exists in this school/i);
+
+  // 5. Get created department by ID
+  const getRes = await fetch(`${baseUrl}/departments/${createdId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const getBody = await getRes.json();
+  assert.equal(getRes.status, 200);
+  assert.equal(getBody.success, true);
+  assert.equal(getBody.data.department_id, createdId);
+  assert.equal(getBody.data.name, uniqueName);
+  assert.ok(getBody.data.school_name);
+  assert.ok(getBody.data.school_code);
+
+  // 6. Search filter finds the created department
+  const searchRes = await fetch(`${baseUrl}/departments?search=${uniqueCode}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const searchBody = await searchRes.json();
+  assert.equal(searchRes.status, 200);
+  assert.ok(searchBody.data.some((d) => d.department_id === createdId));
+
+  // 7. Update department (name and code)
+  const updatedName = `${uniqueName}_Updated`;
+  const updateRes = await fetch(`${baseUrl}/departments/${createdId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      name: updatedName,
+      code: "UPD1",
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.success, true);
+  assert.equal(updateBody.data.name, updatedName);
+  assert.equal(updateBody.data.code, "UPD1");
+  assert.ok(updateBody.data.school_name);
+
+  // 8. Update with invalid school_id returns 400
+  const invalidSchoolUpdate = await fetch(`${baseUrl}/departments/${createdId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ school_id: 999999 }),
+  });
+  assert.equal(invalidSchoolUpdate.status, 400);
+  assert.equal((await invalidSchoolUpdate.json()).success, false);
+
+  // 9. Soft deactivate department (DELETE)
+  const deleteRes = await fetch(`${baseUrl}/departments/${createdId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const deleteBody = await deleteRes.json();
+  assert.equal(deleteRes.status, 200);
+  assert.equal(deleteBody.success, true);
+  assert.match(deleteBody.message, /deactivated successfully/i);
+
+  // 10. Verify department is now inactive (is_active = 0)
+  const verifyRes = await fetch(`${baseUrl}/departments/${createdId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const verifyBody = await verifyRes.json();
+  assert.equal(verifyRes.status, 200);
+  assert.equal(verifyBody.data.is_active, 0);
+
+  // 11. Deactivating already inactive department returns 400
+  const repeatDeleteRes = await fetch(`${baseUrl}/departments/${createdId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const repeatDeleteBody = await repeatDeleteRes.json();
+  assert.equal(repeatDeleteRes.status, 400);
+  assert.equal(repeatDeleteBody.success, false);
+  assert.match(repeatDeleteBody.message, /already inactive/i);
+});
+
+
 
