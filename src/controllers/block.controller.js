@@ -1,20 +1,44 @@
 const pool = require("../config/mysql");
 
-// GET /api/v1/blocks
+/**
+ * GET /api/v1/blocks
+ * Retrieves all blocks with optional search and active status filtering.
+ */
 const getBlocks = async (req, res) => {
   try {
+    const { is_active, search } = req.query;
+
+    const conditions = [];
+    const params = [];
+
+    if (is_active !== undefined) {
+      const activeVal = is_active === "true" || is_active === "1" ? 1 : 0;
+      conditions.push("b.is_active = ?");
+      params.push(activeVal);
+    }
+
+    if (search && typeof search === "string" && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+      conditions.push("(b.code LIKE ? OR b.name LIKE ?)");
+      params.push(searchTerm, searchTerm);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
     const [blocks] = await pool.query(
       `
-            SELECT
-                block_id,
-                code,
-                name,
-                is_active,
-                created_at,
-                updated_at
-            FROM blocks
-            ORDER BY block_id
-            `,
+      SELECT
+          b.block_id,
+          b.code,
+          b.name,
+          b.is_active,
+          b.created_at,
+          b.updated_at
+      FROM blocks b
+      ${whereClause}
+      ORDER BY b.block_id ASC
+      `,
+      params,
     );
 
     return res.status(200).json({
@@ -32,24 +56,27 @@ const getBlocks = async (req, res) => {
   }
 };
 
-// GET /api/v1/blocks/:id
+/**
+ * GET /api/v1/blocks/:id
+ * Retrieves a single block by ID.
+ */
 const getBlockById = async (req, res) => {
   try {
     const { id } = req.params;
 
     const [blocks] = await pool.query(
       `
-            SELECT
-                block_id,
-                code,
-                name,
-                is_active,
-                created_at,
-                updated_at
-            FROM blocks
-            WHERE block_id = ?
-            LIMIT 1
-            `,
+      SELECT
+          b.block_id,
+          b.code,
+          b.name,
+          b.is_active,
+          b.created_at,
+          b.updated_at
+      FROM blocks b
+      WHERE b.block_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -75,59 +102,70 @@ const getBlockById = async (req, res) => {
   }
 };
 
-// POST /api/v1/blocks
+/**
+ * POST /api/v1/blocks
+ * Creates a new campus block. ADMIN only.
+ */
 const createBlock = async (req, res) => {
   try {
-    const { code, name, is_active } = req.body;
+    const { code, name, is_active } = req.body || {};
 
-    if (!code || !name) {
+    if (
+      !code ||
+      typeof code !== "string" ||
+      !code.trim() ||
+      !name ||
+      typeof name !== "string" ||
+      !name.trim()
+    ) {
       return res.status(400).json({
         success: false,
         message: "code and name are required",
       });
     }
 
-    // Check duplicate code
-    const [existingBlocks] = await pool.query(
-      `
-            SELECT block_id
-            FROM blocks
-            WHERE code = ?
-            LIMIT 1
-            `,
-      [code],
-    );
-
-    if (existingBlocks.length > 0) {
-      return res.status(409).json({
-        success: false,
-        message: "Block code already exists",
-      });
-    }
+    const trimmedCode = code.trim();
+    const trimmedName = name.trim();
+    const activeStatus = is_active !== undefined ? (Boolean(is_active) ? 1 : 0) : 1;
 
     const [result] = await pool.query(
       `
-            INSERT INTO blocks
-                (code, name, is_active)
-            VALUES
-                (?, ?, ?)
-            `,
-      [code, name, is_active ?? 1],
+      INSERT INTO blocks (code, name, is_active)
+      VALUES (?, ?, ?)
+      `,
+      [trimmedCode, trimmedName, activeStatus],
+    );
+
+    const [created] = await pool.query(
+      `
+      SELECT
+          block_id,
+          code,
+          name,
+          is_active,
+          created_at,
+          updated_at
+      FROM blocks
+      WHERE block_id = ?
+      LIMIT 1
+      `,
+      [result.insertId],
     );
 
     return res.status(201).json({
       success: true,
       message: "Block created successfully",
-      data: {
-        block_id: result.insertId,
-        code,
-        name,
-        is_active: is_active ?? 1,
-      },
+      data: created[0],
     });
   } catch (error) {
-    console.error("Create block error:", error);
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "Block code or name already exists",
+      });
+    }
 
+    console.error("Create block error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -135,82 +173,96 @@ const createBlock = async (req, res) => {
   }
 };
 
-// PUT /api/v1/blocks/:id
+/**
+ * PUT /api/v1/blocks/:id
+ * Updates an existing campus block. ADMIN only.
+ */
 const updateBlock = async (req, res) => {
   try {
     const { id } = req.params;
+    const { code, name, is_active } = req.body || {};
 
-    const { code, name, is_active } = req.body;
-
-    const [existingBlocks] = await pool.query(
+    const [existing] = await pool.query(
       `
-            SELECT *
-            FROM blocks
-            WHERE block_id = ?
-            LIMIT 1
-            `,
+      SELECT *
+      FROM blocks
+      WHERE block_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
-    if (existingBlocks.length === 0) {
+    if (existing.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Block not found",
       });
     }
 
-    const block = existingBlocks[0];
+    const block = existing[0];
 
-    // Check duplicate code if code is being changed
-    if (code !== undefined && code !== block.code) {
-      const [duplicateBlocks] = await pool.query(
-        `
-                SELECT block_id
-                FROM blocks
-                WHERE code = ?
-                  AND block_id != ?
-                LIMIT 1
-                `,
-        [code, id],
-      );
+    if (code !== undefined && (typeof code !== "string" || !code.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: "code cannot be empty",
+      });
+    }
 
-      if (duplicateBlocks.length > 0) {
-        return res.status(409).json({
-          success: false,
-          message: "Block code already exists",
-        });
-      }
+    if (name !== undefined && (typeof name !== "string" || !name.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: "name cannot be empty",
+      });
     }
 
     const updatedBlock = {
-      code: code ?? block.code,
-      name: name ?? block.name,
-      is_active: is_active ?? block.is_active,
+      code: code !== undefined ? code.trim() : block.code,
+      name: name !== undefined ? name.trim() : block.name,
+      is_active: is_active !== undefined ? (Boolean(is_active) ? 1 : 0) : block.is_active,
     };
 
     await pool.query(
       `
-            UPDATE blocks
-            SET
-                code = ?,
-                name = ?,
-                is_active = ?
-            WHERE block_id = ?
-            `,
+      UPDATE blocks
+      SET
+          code = ?,
+          name = ?,
+          is_active = ?
+      WHERE block_id = ?
+      `,
       [updatedBlock.code, updatedBlock.name, updatedBlock.is_active, id],
+    );
+
+    const [updated] = await pool.query(
+      `
+      SELECT
+          block_id,
+          code,
+          name,
+          is_active,
+          created_at,
+          updated_at
+      FROM blocks
+      WHERE block_id = ?
+      LIMIT 1
+      `,
+      [id],
     );
 
     return res.status(200).json({
       success: true,
       message: "Block updated successfully",
-      data: {
-        block_id: Number(id),
-        ...updatedBlock,
-      },
+      data: updated[0],
     });
   } catch (error) {
-    console.error("Update block error:", error);
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "Block code or name already exists",
+      });
+    }
 
+    console.error("Update block error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -218,18 +270,21 @@ const updateBlock = async (req, res) => {
   }
 };
 
-// DELETE /api/v1/blocks/:id
+/**
+ * DELETE /api/v1/blocks/:id
+ * Soft deactivates a campus block. ADMIN only.
+ */
 const deleteBlock = async (req, res) => {
   try {
     const { id } = req.params;
 
     const [blocks] = await pool.query(
       `
-            SELECT block_id, is_active
-            FROM blocks
-            WHERE block_id = ?
-            LIMIT 1
-            `,
+      SELECT block_id, is_active
+      FROM blocks
+      WHERE block_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -249,10 +304,10 @@ const deleteBlock = async (req, res) => {
 
     await pool.query(
       `
-            UPDATE blocks
-            SET is_active = 0
-            WHERE block_id = ?
-            `,
+      UPDATE blocks
+      SET is_active = 0
+      WHERE block_id = ?
+      `,
       [id],
     );
 

@@ -577,4 +577,564 @@ test("Token Revocation: Cleanup routine purges naturally expired revoked tokens"
   assert.equal(rows.length, 0);
 });
 
+// =============================================================================
+// FEAT-008: Campus Block & Classroom Management (CRUD) Tests
+// =============================================================================
+
+// --- Block Authentication & RBAC ---
+test("Block CRUD: GET /api/v1/blocks without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/blocks`);
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Authorization token is required");
+});
+
+test("Block CRUD: GET /api/v1/blocks/:id without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/blocks/1`);
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Authorization token is required");
+});
+
+test("Block CRUD RBAC: POST /api/v1/blocks with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/blocks`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ code: "BLKTST", name: "Student Block" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Block CRUD RBAC: PUT /api/v1/blocks/:id with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/blocks/1`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ name: "Unauthorized Update" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Block CRUD RBAC: DELETE /api/v1/blocks/:id with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/blocks/1`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+// --- Block Validation, Conflicts, and Not Found ---
+test("Block CRUD Validation: POST /api/v1/blocks requires code and name", async () => {
+  const res = await fetch(`${baseUrl}/blocks`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /code and name are required/i);
+});
+
+test("Block CRUD Not Found: GET, PUT, and DELETE on non-existent block return 404", async () => {
+  const nonExistentId = 999999;
+
+  const getRes = await fetch(`${baseUrl}/blocks/${nonExistentId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(getRes.status, 404);
+  assert.equal((await getRes.json()).success, false);
+
+  const putRes = await fetch(`${baseUrl}/blocks/${nonExistentId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ name: "Non-existent" }),
+  });
+  assert.equal(putRes.status, 404);
+  assert.equal((await putRes.json()).success, false);
+
+  const delRes = await fetch(`${baseUrl}/blocks/${nonExistentId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(delRes.status, 404);
+  assert.equal((await delRes.json()).success, false);
+});
+
+// --- Block Full Lifecycle (List, Filter/Search, Create, Duplicate Conflict, Update, Deactivate, Repeat Deactivation) ---
+test("Block CRUD Full Lifecycle: List, Search, Filter, Create, Duplicate Conflict, Update, Deactivate", async () => {
+  const uniqueCode = `B${Date.now().toString().slice(-6)}`;
+  const uniqueName = `Block_Test_${Date.now()}`;
+
+  // 1. Create a block as ADMIN
+  const createRes = await fetch(`${baseUrl}/blocks`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      code: uniqueCode,
+      name: uniqueName,
+      is_active: 1,
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  assert.equal(createBody.data.code, uniqueCode);
+  assert.equal(createBody.data.name, uniqueName);
+  const createdBlockId = createBody.data.block_id;
+  assert.ok(createdBlockId);
+
+  // 2. Duplicate code conflict returns 409
+  const dupCodeRes = await fetch(`${baseUrl}/blocks`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      code: uniqueCode,
+      name: `Different_Name_${Date.now()}`,
+    }),
+  });
+  assert.equal(dupCodeRes.status, 409);
+  assert.equal((await dupCodeRes.json()).success, false);
+
+  // 3. Duplicate name conflict returns 409
+  const dupNameRes = await fetch(`${baseUrl}/blocks`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      code: `DIFF${Date.now().toString().slice(-4)}`,
+      name: uniqueName,
+    }),
+  });
+  assert.equal(dupNameRes.status, 409);
+  assert.equal((await dupNameRes.json()).success, false);
+
+  // 4. Retrieve block by ID
+  const getRes = await fetch(`${baseUrl}/blocks/${createdBlockId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const getBody = await getRes.json();
+  assert.equal(getRes.status, 200);
+  assert.equal(getBody.success, true);
+  assert.equal(getBody.data.block_id, createdBlockId);
+  assert.equal(getBody.data.code, uniqueCode);
+
+  // 5. Search filter finds the created block
+  const searchRes = await fetch(`${baseUrl}/blocks?search=${uniqueCode}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const searchBody = await searchRes.json();
+  assert.equal(searchRes.status, 200);
+  assert.ok(searchBody.data.some((b) => b.block_id === createdBlockId));
+
+  // 6. Active status filter works
+  const activeRes = await fetch(`${baseUrl}/blocks?is_active=1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const activeBody = await activeRes.json();
+  assert.equal(activeRes.status, 200);
+  assert.ok(activeBody.data.every((b) => b.is_active === 1));
+
+  // 7. Update block
+  const updatedName = `${uniqueName}_Updated`;
+  const updateRes = await fetch(`${baseUrl}/blocks/${createdBlockId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      name: updatedName,
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.success, true);
+  assert.equal(updateBody.data.name, updatedName);
+
+  // 8. Soft deactivate block
+  const delRes = await fetch(`${baseUrl}/blocks/${createdBlockId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const delBody = await delRes.json();
+  assert.equal(delRes.status, 200);
+  assert.equal(delBody.success, true);
+  assert.match(delBody.message, /deactivated successfully/i);
+
+  // 9. Verify block is inactive
+  const verifyRes = await fetch(`${baseUrl}/blocks/${createdBlockId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const verifyBody = await verifyRes.json();
+  assert.equal(verifyRes.status, 200);
+  assert.equal(verifyBody.data.is_active, 0);
+
+  // 10. Repeated deactivation is rejected with 400
+  const repeatDelRes = await fetch(`${baseUrl}/blocks/${createdBlockId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(repeatDelRes.status, 400);
+  assert.match((await repeatDelRes.json()).message, /already inactive/i);
+});
+
+// --- Classroom Authentication & RBAC ---
+test("Classroom CRUD: GET /api/v1/classrooms without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/classrooms`);
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Authorization token is required");
+});
+
+test("Classroom CRUD: GET /api/v1/classrooms/:id without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/classrooms/1`);
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Authorization token is required");
+});
+
+test("Classroom CRUD RBAC: POST /api/v1/classrooms with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/classrooms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({
+      block_id: 1,
+      department_id: 1,
+      room_no: "STU101",
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Classroom CRUD RBAC: PUT /api/v1/classrooms/:id with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/classrooms/1`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ room_no: "UNAUTH101" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Classroom CRUD RBAC: DELETE /api/v1/classrooms/:id with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/classrooms/1`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+// --- Classroom Validation: Required fields, Foreign keys, Inactive block, Capacity ---
+test("Classroom CRUD Validation: POST /api/v1/classrooms requires block_id, department_id, and room_no", async () => {
+  const res = await fetch(`${baseUrl}/classrooms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /required/i);
+});
+
+test("Classroom CRUD Validation: POST /api/v1/classrooms rejects invalid block_id", async () => {
+  const res = await fetch(`${baseUrl}/classrooms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      block_id: 999999,
+      department_id: 1,
+      room_no: `INV_BLK_${Date.now()}`,
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /invalid block_id/i);
+});
+
+test("Classroom CRUD Validation: POST /api/v1/classrooms rejects invalid department_id", async () => {
+  const res = await fetch(`${baseUrl}/classrooms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      block_id: 1,
+      department_id: 999999,
+      room_no: `INV_DEPT_${Date.now()}`,
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /invalid department_id/i);
+});
+
+test("Classroom CRUD Validation: POST /api/v1/classrooms rejects assigning classroom to inactive block", async () => {
+  // Block 3 is inactive in test db (is_active = 0)
+  const res = await fetch(`${baseUrl}/classrooms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      block_id: 3,
+      department_id: 1,
+      room_no: `INACT_BLK_${Date.now()}`,
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /inactive block/i);
+});
+
+test("Classroom CRUD Validation: POST /api/v1/classrooms rejects invalid capacity values", async () => {
+  for (const invalidCapacity of [-10, 0, "not-a-number", 12.5]) {
+    const res = await fetch(`${baseUrl}/classrooms`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        block_id: 1,
+        department_id: 1,
+        room_no: `CAP_TEST_${Date.now()}`,
+        capacity: invalidCapacity,
+      }),
+    });
+    const body = await res.json();
+    assert.equal(res.status, 400, `Expected 400 for capacity ${invalidCapacity}`);
+    assert.equal(body.success, false);
+    assert.match(body.message, /positive integer/i);
+  }
+});
+
+test("Classroom CRUD Not Found: GET, PUT, and DELETE on non-existent classroom return 404", async () => {
+  const nonExistentId = 999999;
+
+  const getRes = await fetch(`${baseUrl}/classrooms/${nonExistentId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(getRes.status, 404);
+  assert.equal((await getRes.json()).success, false);
+
+  const putRes = await fetch(`${baseUrl}/classrooms/${nonExistentId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ room_no: "NonExistentRoom" }),
+  });
+  assert.equal(putRes.status, 404);
+  assert.equal((await putRes.json()).success, false);
+
+  const delRes = await fetch(`${baseUrl}/classrooms/${nonExistentId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(delRes.status, 404);
+  assert.equal((await delRes.json()).success, false);
+});
+
+// --- Classroom Full Lifecycle: List with joins, Filters, Create, Duplicate Check, Update, Deactivate, Repeat Deactivation ---
+test("Classroom CRUD Full Lifecycle: List with joins, Filter, Create, Duplicate Conflict, Update, Deactivate", async () => {
+  // 1. List classrooms with block and department joins
+  const listRes = await fetch(`${baseUrl}/classrooms`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const listBody = await listRes.json();
+  assert.equal(listRes.status, 200);
+  assert.equal(listBody.success, true);
+  assert.ok(Array.isArray(listBody.data));
+  assert.ok(listBody.data.length > 0);
+  // Verify joined metadata
+  const firstRoom = listBody.data[0];
+  assert.ok(firstRoom.block_name);
+  assert.ok(firstRoom.department_name);
+
+  // 2. Create a new classroom linked to block 1 and department 1
+  const uniqueRoomNo = `R${Date.now().toString().slice(-5)}`;
+  const createRes = await fetch(`${baseUrl}/classrooms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      block_id: 1,
+      department_id: 1,
+      room_no: uniqueRoomNo,
+      room_type: "SMART_CLASSROOM",
+      capacity: 75,
+      is_active: 1,
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  const createdClassroomId = createBody.data.classroom_id;
+  assert.ok(createdClassroomId);
+  assert.equal(createBody.data.room_no, uniqueRoomNo);
+  assert.equal(createBody.data.room_type, "SMART_CLASSROOM");
+  assert.equal(createBody.data.capacity, 75);
+  assert.equal(createBody.data.block_id, 1);
+  assert.equal(createBody.data.department_id, 1);
+  assert.ok(createBody.data.block_name);
+  assert.ok(createBody.data.department_name);
+
+  // 3. Duplicate room_no in same block returns 409
+  const dupRes = await fetch(`${baseUrl}/classrooms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      block_id: 1,
+      department_id: 1,
+      room_no: uniqueRoomNo,
+    }),
+  });
+  const dupBody = await dupRes.json();
+  assert.equal(dupRes.status, 409);
+  assert.equal(dupBody.success, false);
+  assert.match(dupBody.message, /already exists in this block/i);
+
+  // 4. Retrieve created classroom by ID
+  const getRes = await fetch(`${baseUrl}/classrooms/${createdClassroomId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const getBody = await getRes.json();
+  assert.equal(getRes.status, 200);
+  assert.equal(getBody.success, true);
+  assert.equal(getBody.data.classroom_id, createdClassroomId);
+  assert.equal(getBody.data.room_no, uniqueRoomNo);
+  assert.ok(getBody.data.block_name);
+  assert.ok(getBody.data.department_name);
+
+  // 5. Query filtering by block_id, department_id, and search
+  const filteredRes = await fetch(`${baseUrl}/classrooms?block_id=1&department_id=1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const filteredBody = await filteredRes.json();
+  assert.equal(filteredRes.status, 200);
+  assert.ok(filteredBody.data.every((c) => c.block_id === 1 && c.department_id === 1));
+
+  const searchRes = await fetch(`${baseUrl}/classrooms?search=${uniqueRoomNo}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const searchBody = await searchRes.json();
+  assert.equal(searchRes.status, 200);
+  assert.ok(searchBody.data.some((c) => c.classroom_id === createdClassroomId));
+
+  // 6. Update classroom attributes
+  const updatedRoomNo = `${uniqueRoomNo}_U`;
+  const updateRes = await fetch(`${baseUrl}/classrooms/${createdClassroomId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      room_no: updatedRoomNo,
+      capacity: 80,
+      room_type: "LAB",
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.success, true);
+  assert.equal(updateBody.data.room_no, updatedRoomNo);
+  assert.equal(updateBody.data.capacity, 80);
+  assert.equal(updateBody.data.room_type, "LAB");
+  assert.ok(updateBody.data.block_name);
+  assert.ok(updateBody.data.department_name);
+
+  // 7. Soft deactivate classroom
+  const delRes = await fetch(`${baseUrl}/classrooms/${createdClassroomId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const delBody = await delRes.json();
+  assert.equal(delRes.status, 200);
+  assert.equal(delBody.success, true);
+  assert.match(delBody.message, /deactivated successfully/i);
+
+  // 8. Verify classroom is inactive
+  const verifyRes = await fetch(`${baseUrl}/classrooms/${createdClassroomId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const verifyBody = await verifyRes.json();
+  assert.equal(verifyRes.status, 200);
+  assert.equal(verifyBody.data.is_active, 0);
+
+  // 9. Repeated deactivation is rejected with 400
+  const repeatDelRes = await fetch(`${baseUrl}/classrooms/${createdClassroomId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(repeatDelRes.status, 400);
+  assert.match((await repeatDelRes.json()).message, /already inactive/i);
+});
+
+
 
