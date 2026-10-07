@@ -108,6 +108,44 @@ const createDepartment = async (req, res) => {
       });
     }
 
+    // Check duplicate code
+    if (code) {
+      const [existingCodes] = await pool.query(
+        `
+            SELECT department_id
+            FROM departments
+            WHERE code = ?
+            LIMIT 1
+            `,
+        [code],
+      );
+
+      if (existingCodes.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: "Department code already exists",
+        });
+      }
+    }
+
+    // Check duplicate name in school
+    const [existingNames] = await pool.query(
+      `
+            SELECT department_id
+            FROM departments
+            WHERE school_id = ? AND name = ?
+            LIMIT 1
+            `,
+      [school_id, name],
+    );
+
+    if (existingNames.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Department name already exists in this school",
+      });
+    }
+
     // Create department
     const [result] = await pool.query(
       `
@@ -131,6 +169,12 @@ const createDepartment = async (req, res) => {
       },
     });
   } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "Department code or name already exists",
+      });
+    }
     console.error("Create department error:", error);
 
     return res.status(500).json({

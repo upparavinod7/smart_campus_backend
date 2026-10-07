@@ -152,6 +152,12 @@ const createAttendance = async (req, res) => {
       },
     });
   } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "Attendance has already been marked for this student",
+      });
+    }
     console.error("Create attendance error:", error);
 
     return res.status(500).json({

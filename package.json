@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test src/test/api.test.js",
+    "test:api": "node --test src/test/api.test.js",
+    "test:coverage": "node --test --experimental-test-coverage src/test/api.test.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
