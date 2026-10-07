@@ -577,4 +577,555 @@ test("Token Revocation: Cleanup routine purges naturally expired revoked tokens"
   assert.equal(rows.length, 0);
 });
 
+// =============================================================================
+// FEAT-009: Attendance Session & Record Management Tests
+// =============================================================================
+
+const facultyToken = jwt.sign(
+  { user_id: 4, username: "FAC001", role: "FACULTY", faculty_id: 1 },
+  process.env.JWT_SECRET,
+  { expiresIn: "1h" },
+);
+
+const otherFacultyToken = jwt.sign(
+  { user_id: 99, username: "FAC002", role: "FACULTY", faculty_id: 2 },
+  process.env.JWT_SECRET,
+  { expiresIn: "1h" },
+);
+
+const otherStudentToken = jwt.sign(
+  { user_id: 98, username: "otherStudent", role: "STUDENT", student_id: 2 },
+  process.env.JWT_SECRET,
+  { expiresIn: "1h" },
+);
+
+// --- Authentication and RBAC ---
+test("Attendance Sessions: GET /api/v1/attendance/sessions without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/attendance/sessions`);
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Authorization token is required");
+});
+
+test("Attendance Records: GET /api/v1/attendance without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/attendance`);
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Authorization token is required");
+});
+
+test("Attendance Sessions RBAC: POST /api/v1/attendance/sessions with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/attendance/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ slot_id: 1 }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Attendance Sessions RBAC: PUT /api/v1/attendance/sessions/:id with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/attendance/sessions/1`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ cancel_reason: "Unauthorized" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Attendance Sessions RBAC: POST /api/v1/attendance/sessions/:id/start with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/attendance/sessions/1/start`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Attendance Sessions RBAC: POST /api/v1/attendance/sessions/:id/finalize with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/attendance/sessions/1/finalize`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Attendance Records RBAC: POST /api/v1/attendance with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/attendance`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ session_id: 1, enrollment_id: 1, status: "PRESENT" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Attendance Records RBAC: POST /api/v1/attendance/:id/override with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/attendance/1/override`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ new_status: "PRESENT", reason_code: "OTHER" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /permission|forbidden|access denied/i);
+});
+
+test("Attendance Sessions RBAC: Faculty cannot create session assigned to another faculty member (403)", async () => {
+  const res = await fetch(`${baseUrl}/attendance/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${facultyToken}`, // faculty_id: 1
+    },
+    body: JSON.stringify({
+      slot_id: 1,
+      session_date: "2027-01-10",
+      faculty_id: 2, // Trying to assign to faculty 2
+      classroom_id: 1,
+      scheduled_start: "2027-01-10 09:00:00",
+      scheduled_end: "2027-01-10 10:00:00",
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /another faculty member/i);
+});
+
+test("Attendance Records Privacy: STUDENT cannot access another student's attendance records (403)", async () => {
+  // studentToken has student_id: 1. Trying to access student 2
+  const res = await fetch(`${baseUrl}/attendance/student/2`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+  assert.match(body.message, /another student/i);
+});
+
+// --- Session Validation and Error Handling ---
+test("Attendance Sessions Validation: POST /api/v1/attendance/sessions requires all core fields (400)", async () => {
+  const res = await fetch(`${baseUrl}/attendance/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /required/i);
+});
+
+test("Attendance Sessions Validation: POST /api/v1/attendance/sessions rejects invalid foreign keys (400)", async () => {
+  const invalidSlotRes = await fetch(`${baseUrl}/attendance/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      slot_id: 999999,
+      session_date: "2027-02-01",
+      faculty_id: 1,
+      classroom_id: 1,
+      scheduled_start: "2027-02-01 09:00:00",
+      scheduled_end: "2027-02-01 10:00:00",
+    }),
+  });
+  assert.equal(invalidSlotRes.status, 400);
+  assert.match((await invalidSlotRes.json()).message, /invalid slot_id/i);
+
+  const invalidFacRes = await fetch(`${baseUrl}/attendance/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      slot_id: 1,
+      session_date: "2027-02-01",
+      faculty_id: 999999,
+      classroom_id: 1,
+      scheduled_start: "2027-02-01 09:00:00",
+      scheduled_end: "2027-02-01 10:00:00",
+    }),
+  });
+  assert.equal(invalidFacRes.status, 400);
+  assert.match((await invalidFacRes.json()).message, /invalid faculty_id/i);
+});
+
+test("Attendance Sessions Validation: POST /api/v1/attendance/sessions rejects scheduled_end <= scheduled_start (400)", async () => {
+  const res = await fetch(`${baseUrl}/attendance/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      slot_id: 1,
+      session_date: "2027-02-02",
+      faculty_id: 1,
+      classroom_id: 1,
+      scheduled_start: "2027-02-02 10:00:00",
+      scheduled_end: "2027-02-02 09:00:00", // Earlier than start
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /greater than/i);
+});
+
+test("Attendance Sessions Not Found: GET, PUT, start, finalize on non-existent session return 404", async () => {
+  const nonExistentId = 999999;
+
+  const getRes = await fetch(`${baseUrl}/attendance/sessions/${nonExistentId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(getRes.status, 404);
+  assert.equal((await getRes.json()).success, false);
+
+  const putRes = await fetch(`${baseUrl}/attendance/sessions/${nonExistentId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ cancel_reason: "Test" }),
+  });
+  assert.equal(putRes.status, 404);
+  assert.equal((await putRes.json()).success, false);
+
+  const startRes = await fetch(`${baseUrl}/attendance/sessions/${nonExistentId}/start`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(startRes.status, 404);
+  assert.equal((await startRes.json()).success, false);
+
+  const finRes = await fetch(`${baseUrl}/attendance/sessions/${nonExistentId}/finalize`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(finRes.status, 404);
+  assert.equal((await finRes.json()).success, false);
+});
+
+// --- Session Lifecycle, State Machine, Marking, and Reconciliation Full Lifecycle ---
+test("Attendance Lifecycle: Create, List/Filter, Start, Mark, Reject Duplicates, Finalize, Reconcile, and Override", async () => {
+  const randomOffsetDays = 300 + Math.floor(Math.random() * 20000);
+  const uniqueDate = new Date(Date.now() + 86400000 * randomOffsetDays).toISOString().slice(0, 10);
+
+  // 1. Create session as assigned Faculty 1
+  const createRes = await fetch(`${baseUrl}/attendance/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${facultyToken}`,
+    },
+    body: JSON.stringify({
+      slot_id: 1,
+      session_date: uniqueDate,
+      faculty_id: 1,
+      classroom_id: 1,
+      scheduled_start: `${uniqueDate} 10:00:00`,
+      scheduled_end: `${uniqueDate} 11:00:00`,
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  const sessionId = createBody.data.session_id;
+  assert.ok(sessionId);
+  assert.equal(createBody.data.status, "SCHEDULED");
+  assert.equal(createBody.data.faculty_id, 1);
+
+  // 2. Duplicate session for same slot/date returns 409
+  const dupRes = await fetch(`${baseUrl}/attendance/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      slot_id: 1,
+      session_date: uniqueDate,
+      faculty_id: 1,
+      classroom_id: 1,
+      scheduled_start: `${uniqueDate} 10:00:00`,
+      scheduled_end: `${uniqueDate} 11:00:00`,
+    }),
+  });
+  assert.equal(dupRes.status, 409);
+  assert.equal((await dupRes.json()).success, false);
+
+  // 3. List sessions with filters and relational metadata joins
+  const listRes = await fetch(`${baseUrl}/attendance/sessions?session_date=${uniqueDate}&faculty_id=1`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  const listBody = await listRes.json();
+  assert.equal(listRes.status, 200);
+  assert.ok(listBody.data.some((s) => s.session_id === sessionId));
+  const foundSession = listBody.data.find((s) => s.session_id === sessionId);
+  assert.ok(foundSession.faculty_name);
+  assert.ok(foundSession.room_no);
+
+  // 4. Other faculty cannot start Faculty 1's session (403)
+  const unauthStartRes = await fetch(`${baseUrl}/attendance/sessions/${sessionId}/start`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${otherFacultyToken}` },
+  });
+  assert.equal(unauthStartRes.status, 403);
+  assert.match((await unauthStartRes.json()).message, /permission/i);
+
+  // 5. Cannot mark attendance while session is SCHEDULED (400)
+  const earlyMarkRes = await fetch(`${baseUrl}/attendance`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${facultyToken}`,
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      student_id: 1,
+      status: "PRESENT",
+    }),
+  });
+  assert.equal(earlyMarkRes.status, 400);
+  assert.match((await earlyMarkRes.json()).message, /SCHEDULED/i);
+
+  // 6. Faculty 1 starts session (SCHEDULED -> OPEN)
+  const startRes = await fetch(`${baseUrl}/attendance/sessions/${sessionId}/start`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  const startBody = await startRes.json();
+  assert.equal(startRes.status, 200);
+  assert.equal(startBody.data.status, "OPEN");
+  assert.ok(startBody.data.opened_at);
+
+  // 7. Repeated start on OPEN session returns 400
+  const repeatStartRes = await fetch(`${baseUrl}/attendance/sessions/${sessionId}/start`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  assert.equal(repeatStartRes.status, 400);
+  assert.match((await repeatStartRes.json()).message, /OPEN/i);
+
+  // 8. Other faculty cannot mark attendance for Faculty 1's session (403)
+  const unauthMarkRes = await fetch(`${baseUrl}/attendance`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${otherFacultyToken}`,
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      student_id: 1,
+      status: "PRESENT",
+    }),
+  });
+  assert.equal(unauthMarkRes.status, 403);
+
+  // 9. Faculty 1 marks attendance for student 1 in open session
+  const markRes = await fetch(`${baseUrl}/attendance`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${facultyToken}`,
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      student_id: 1,
+      status: "PRESENT",
+    }),
+  });
+  const markBody = await markRes.json();
+  assert.equal(markRes.status, 201);
+  assert.equal(markBody.success, true);
+  const attendanceId = markBody.data.attendance_id;
+  assert.ok(attendanceId);
+  assert.equal(markBody.data.status, "PRESENT");
+  assert.equal(markBody.data.source, "MANUAL");
+
+  // 10. Duplicate attendance for same student and session returns 409
+  const dupMarkRes = await fetch(`${baseUrl}/attendance`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${facultyToken}`,
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      student_id: 1,
+      status: "PRESENT",
+    }),
+  });
+  assert.equal(dupMarkRes.status, 409);
+  assert.equal((await dupMarkRes.json()).success, false);
+
+  // 11. Retrieve session roster records
+  const sessionRecordsRes = await fetch(`${baseUrl}/attendance/session/${sessionId}`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  const sessionRecordsBody = await sessionRecordsRes.json();
+  assert.equal(sessionRecordsRes.status, 200);
+  assert.equal(sessionRecordsBody.data.total_records, 1);
+  assert.equal(sessionRecordsBody.data.records[0].attendance_id, attendanceId);
+
+  // 12. Finalize session (OPEN -> CLOSED)
+  const finalizeRes = await fetch(`${baseUrl}/attendance/sessions/${sessionId}/finalize`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  const finalizeBody = await finalizeRes.json();
+  assert.equal(finalizeRes.status, 200);
+  assert.equal(finalizeBody.data.status, "CLOSED");
+  assert.ok(finalizeBody.data.closed_at);
+
+  // 13. Repeated finalize on CLOSED session returns 400
+  const repeatFinalizeRes = await fetch(`${baseUrl}/attendance/sessions/${sessionId}/finalize`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  assert.equal(repeatFinalizeRes.status, 400);
+  assert.match((await repeatFinalizeRes.json()).message, /CLOSED/i);
+
+  // 14. Cannot mark normal attendance on CLOSED session (400)
+  const closedMarkRes = await fetch(`${baseUrl}/attendance`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${facultyToken}`,
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      student_id: 2,
+      status: "PRESENT",
+    }),
+  });
+  assert.equal(closedMarkRes.status, 400);
+  assert.match((await closedMarkRes.json()).message, /CLOSED/i);
+
+  // 15. Closed session rejects modifications via PUT (400)
+  const putClosedRes = await fetch(`${baseUrl}/attendance/sessions/${sessionId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${facultyToken}`,
+    },
+    body: JSON.stringify({ cancel_reason: "Closed update attempt" }),
+  });
+  assert.equal(putClosedRes.status, 400);
+
+  // 16. Reconcile attendance session
+  const reconcileRes = await fetch(`${baseUrl}/attendance/sessions/${sessionId}/reconcile`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${facultyToken}`,
+    },
+    body: JSON.stringify({
+      headcount: 1,
+      tolerance_pct: 10,
+    }),
+  });
+  const reconcileBody = await reconcileRes.json();
+  assert.equal(reconcileRes.status, 200);
+  assert.equal(reconcileBody.success, true);
+  assert.equal(reconcileBody.data.session_id, sessionId);
+  assert.equal(reconcileBody.data.attended_count, 1);
+  assert.ok(reconcileBody.data.result);
+
+  // 17. Repeated reconciliation is safe and idempotent (200)
+  const repeatReconcileRes = await fetch(`${baseUrl}/attendance/sessions/${sessionId}/reconcile`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${facultyToken}`,
+    },
+    body: JSON.stringify({ headcount: 1 }),
+  });
+  assert.equal(repeatReconcileRes.status, 200);
+
+  // 18. Administrative override updates record and creates audit trail in attendance_corrections
+  const overrideRes = await fetch(`${baseUrl}/attendance/${attendanceId}/override`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      new_status: "LATE",
+      reason_code: "FACULTY_OVERRIDE",
+      reason_note: "Student was late due to university bus delay",
+    }),
+  });
+  const overrideBody = await overrideRes.json();
+  assert.equal(overrideRes.status, 200);
+  assert.equal(overrideBody.success, true);
+  assert.equal(overrideBody.data.new_status, "LATE");
+  assert.equal(overrideBody.data.previous_status, "PRESENT");
+  assert.equal(overrideBody.data.source, "CORRECTION");
+
+  // 19. Retrieve record by ID verifies overridden state
+  const getRecordRes = await fetch(`${baseUrl}/attendance/${attendanceId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const getRecordBody = await getRecordRes.json();
+  assert.equal(getRecordRes.status, 200);
+  assert.equal(getRecordBody.data.status, "LATE");
+  assert.equal(getRecordBody.data.source, "CORRECTION");
+
+  // 20. Student attendance summary returns valid statistics
+  const summaryRes = await fetch(`${baseUrl}/attendance/student/1/summary`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const summaryBody = await summaryRes.json();
+  assert.equal(summaryRes.status, 200);
+  assert.equal(summaryBody.success, true);
+  assert.ok(summaryBody.data.summary.total_classes >= 1);
+  assert.ok(typeof summaryBody.data.summary.attendance_percentage === "number");
+
+  // Cleanup test data created during this lifecycle test
+  if (sessionId) {
+    await pool.query("DELETE FROM session_reconciliation WHERE session_id = ?", [sessionId]);
+    await pool.query("DELETE FROM attendance_corrections WHERE attendance_id = ?", [attendanceId]);
+    await pool.query("DELETE FROM attendance_records WHERE session_id = ?", [sessionId]);
+    await pool.query("DELETE FROM class_sessions WHERE session_id = ?", [sessionId]);
+  }
+});
+
+
 

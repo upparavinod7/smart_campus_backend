@@ -1,21 +1,35 @@
 const pool = require("../config/mysql");
 
+const ALLOWED_ATTENDANCE_STATUSES = ["PRESENT", "LATE", "ABSENT"];
+const ALLOWED_REASON_CODES = [
+  "MEDICAL_LEAVE",
+  "ON_DUTY_LEAVE",
+  "DEVICE_FAILURE",
+  "FACULTY_OVERRIDE",
+  "DATA_ENTRY_ERROR",
+  "OTHER",
+];
+
+/**
+ * POST /api/v1/attendance
+ * Records attendance for a student in an open session. ADMIN or assigned FACULTY.
+ */
 const createAttendance = async (req, res) => {
   try {
-    const { session_id, enrollment_id, status } = req.body;
+    const sessionIdParam = req.params.sessionId;
+    const { session_id, enrollment_id, student_id, status } = req.body || {};
+
+    const targetSessionId = sessionIdParam || session_id;
 
     // Validate required fields
-    if (!session_id || !enrollment_id || !status) {
+    if (!targetSessionId || (!enrollment_id && !student_id) || !status) {
       return res.status(400).json({
         success: false,
-        message: "session_id, enrollment_id and status are required",
+        message: "session_id, status, and either enrollment_id or student_id are required",
       });
     }
 
-    // Validate attendance status
-    const allowedStatuses = ["PRESENT", "LATE", "ABSENT"];
-
-    if (!allowedStatuses.includes(status)) {
+    if (!ALLOWED_ATTENDANCE_STATUSES.includes(status)) {
       return res.status(400).json({
         success: false,
         message: "Invalid attendance status",
@@ -25,15 +39,16 @@ const createAttendance = async (req, res) => {
     // Check whether the session exists
     const [sessions] = await pool.query(
       `
-            SELECT
-                session_id,
-                slot_id,
-                status AS session_status
-            FROM class_sessions
-            WHERE session_id = ?
-            LIMIT 1
-            `,
-      [session_id],
+      SELECT
+          session_id,
+          slot_id,
+          faculty_id,
+          status AS session_status
+      FROM class_sessions
+      WHERE session_id = ?
+      LIMIT 1
+      `,
+      [targetSessionId],
     );
 
     if (sessions.length === 0) {
@@ -45,8 +60,15 @@ const createAttendance = async (req, res) => {
 
     const session = sessions[0];
 
-    // Attendance can only be marked
-    // while the session is OPEN
+    // Ownership check for FACULTY
+    if (req.user.role === "FACULTY" && req.user.faculty_id && req.user.faculty_id !== session.faculty_id) {
+      return res.status(403).json({
+        success: false,
+        message: "Faculty cannot mark attendance for a session assigned to another faculty member",
+      });
+    }
+
+    // Attendance can only be marked while session is OPEN
     if (session.session_status !== "OPEN") {
       return res.status(400).json({
         success: false,
@@ -54,45 +76,70 @@ const createAttendance = async (req, res) => {
       });
     }
 
-    // Check whether the enrollment belongs
-    // to the section associated with this session
-    const [enrollments] = await pool.query(
-      `
-            SELECT
-                e.enrollment_id,
-                e.student_id,
-                e.section_id,
-                e.status AS enrollment_status,
-                s.register_no,
-                s.full_name
-            FROM enrollments e
+    // Resolve enrollment
+    let targetEnrollmentId = enrollment_id;
+    let enrollmentRecord = null;
 
-            INNER JOIN students s
-                ON s.student_id = e.student_id
+    if (enrollment_id) {
+      const [enrollmentRows] = await pool.query(
+        `
+        SELECT
+            e.enrollment_id,
+            e.student_id,
+            e.section_id,
+            e.status AS enrollment_status,
+            s.register_no,
+            s.full_name
+        FROM enrollments e
+        INNER JOIN students s ON s.student_id = e.student_id
+        INNER JOIN timetable_slots ts ON ts.section_id = e.section_id
+        WHERE e.enrollment_id = ?
+          AND ts.slot_id = ?
+        LIMIT 1
+        `,
+        [enrollment_id, session.slot_id],
+      );
 
-            INNER JOIN timetable_slots ts
-                ON ts.section_id = e.section_id
+      if (enrollmentRows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Student enrollment does not belong to this attendance session",
+        });
+      }
 
-            WHERE e.enrollment_id = ?
-              AND ts.slot_id = ?
+      enrollmentRecord = enrollmentRows[0];
+    } else {
+      const [enrollmentRows] = await pool.query(
+        `
+        SELECT
+            e.enrollment_id,
+            e.student_id,
+            e.section_id,
+            e.status AS enrollment_status,
+            s.register_no,
+            s.full_name
+        FROM enrollments e
+        INNER JOIN students s ON s.student_id = e.student_id
+        INNER JOIN timetable_slots ts ON ts.section_id = e.section_id
+        WHERE e.student_id = ?
+          AND ts.slot_id = ?
+        LIMIT 1
+        `,
+        [student_id, session.slot_id],
+      );
 
-            LIMIT 1
-            `,
-      [enrollment_id, session.slot_id],
-    );
+      if (enrollmentRows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Student enrollment does not belong to this attendance session",
+        });
+      }
 
-    if (enrollments.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Student enrollment does not belong to this attendance session",
-      });
+      enrollmentRecord = enrollmentRows[0];
+      targetEnrollmentId = enrollmentRecord.enrollment_id;
     }
 
-    const enrollment = enrollments[0];
-
-    // Make sure the student is currently registered
-    if (enrollment.enrollment_status !== "REGISTERED") {
+    if (enrollmentRecord.enrollment_status !== "REGISTERED") {
       return res.status(400).json({
         success: false,
         message: "Student enrollment is not active",
@@ -102,16 +149,16 @@ const createAttendance = async (req, res) => {
     // Prevent duplicate attendance
     const [existingAttendance] = await pool.query(
       `
-            SELECT
-                attendance_id,
-                status,
-                source
-            FROM attendance_records
-            WHERE session_id = ?
-              AND enrollment_id = ?
-            LIMIT 1
-            `,
-      [session_id, enrollment_id],
+      SELECT
+          attendance_id,
+          status,
+          source
+      FROM attendance_records
+      WHERE session_id = ?
+        AND enrollment_id = ?
+      LIMIT 1
+      `,
+      [targetSessionId, targetEnrollmentId],
     );
 
     if (existingAttendance.length > 0) {
@@ -125,16 +172,16 @@ const createAttendance = async (req, res) => {
     // Insert manual attendance
     const [result] = await pool.query(
       `
-            INSERT INTO attendance_records (
-                session_id,
-                enrollment_id,
-                status,
-                source,
-                marked_at
-            )
-            VALUES (?, ?, ?, 'MANUAL', NOW())
-            `,
-      [session_id, enrollment_id, status],
+      INSERT INTO attendance_records (
+          session_id,
+          enrollment_id,
+          status,
+          source,
+          marked_at
+      )
+      VALUES (?, ?, ?, 'MANUAL', NOW())
+      `,
+      [targetSessionId, targetEnrollmentId, status],
     );
 
     return res.status(201).json({
@@ -142,18 +189,24 @@ const createAttendance = async (req, res) => {
       message: "Attendance marked successfully",
       data: {
         attendance_id: result.insertId,
-        session_id: Number(session_id),
-        enrollment_id: Number(enrollment_id),
-        student_id: enrollment.student_id,
-        register_no: enrollment.register_no,
-        full_name: enrollment.full_name,
+        session_id: Number(targetSessionId),
+        enrollment_id: Number(targetEnrollmentId),
+        student_id: enrollmentRecord.student_id,
+        register_no: enrollmentRecord.register_no,
+        full_name: enrollmentRecord.full_name,
         status,
         source: "MANUAL",
       },
     });
   } catch (error) {
-    console.error("Create attendance error:", error);
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "Attendance has already been marked for this student",
+      });
+    }
 
+    console.error("Create attendance error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -161,57 +214,73 @@ const createAttendance = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/attendance
+ * Retrieves attendance records with optional filtering.
+ */
 const getAttendanceRecords = async (req, res) => {
   try {
+    const { session_id, student_id, status, source } = req.query;
+
+    const conditions = [];
+    const params = [];
+
+    if (session_id) {
+      conditions.push("ar.session_id = ?");
+      params.push(Number(session_id));
+    }
+
+    if (student_id) {
+      conditions.push("e.student_id = ?");
+      params.push(Number(student_id));
+    }
+
+    if (status) {
+      conditions.push("ar.status = ?");
+      params.push(status);
+    }
+
+    if (source) {
+      conditions.push("ar.source = ?");
+      params.push(source);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
     const [records] = await pool.query(
       `
-            SELECT
-                ar.attendance_id,
-                ar.session_id,
-                ar.enrollment_id,
-
-                e.student_id,
-                s.register_no,
-                s.full_name,
-                s.email,
-
-                ar.status,
-                ar.source,
-
-                ar.rfid_card_id,
-                ar.fingerprint_template_id,
-                ar.device_id,
-
-                ar.rfid_scanned_at,
-                ar.fingerprint_verified_at,
-                ar.scan_event_ref,
-                ar.marked_at,
-
-                cs.session_date,
-                cs.faculty_id,
-                f.full_name AS faculty_name,
-                cs.classroom_id,
-                c.room_no
-
-            FROM attendance_records ar
-
-            INNER JOIN enrollments e
-                ON e.enrollment_id = ar.enrollment_id
-
-            INNER JOIN students s
-                ON s.student_id = e.student_id
-
-            INNER JOIN class_sessions cs
-                ON cs.session_id = ar.session_id
-
-            INNER JOIN faculty f
-                ON f.faculty_id = cs.faculty_id
-
-            INNER JOIN classrooms c
-                ON c.classroom_id = cs.classroom_id
-
-            ORDER BY ar.attendance_id
-            `,
+      SELECT
+          ar.attendance_id,
+          ar.session_id,
+          ar.enrollment_id,
+          e.student_id,
+          s.register_no,
+          s.full_name,
+          s.email,
+          ar.status,
+          ar.source,
+          ar.rfid_card_id,
+          ar.fingerprint_template_id,
+          ar.device_id,
+          ar.rfid_scanned_at,
+          ar.fingerprint_verified_at,
+          ar.scan_event_ref,
+          ar.marked_at,
+          cs.session_date,
+          cs.faculty_id,
+          f.full_name AS faculty_name,
+          cs.classroom_id,
+          c.room_no
+      FROM attendance_records ar
+      INNER JOIN enrollments e ON e.enrollment_id = ar.enrollment_id
+      INNER JOIN students s ON s.student_id = e.student_id
+      INNER JOIN class_sessions cs ON cs.session_id = ar.session_id
+      INNER JOIN faculty f ON f.faculty_id = cs.faculty_id
+      INNER JOIN classrooms c ON c.classroom_id = cs.classroom_id
+      ${whereClause}
+      ORDER BY ar.attendance_id ASC
+      `,
+      params,
     );
 
     return res.status(200).json({
@@ -229,61 +298,47 @@ const getAttendanceRecords = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/attendance/:id
+ * Retrieves an individual attendance record by ID.
+ */
 const getAttendanceById = async (req, res) => {
   try {
     const { id } = req.params;
 
     const [records] = await pool.query(
       `
-            SELECT
-                ar.attendance_id,
-                ar.session_id,
-                ar.enrollment_id,
-
-                e.student_id,
-                s.register_no,
-                s.full_name,
-                s.email,
-
-                ar.status,
-                ar.source,
-
-                ar.rfid_card_id,
-                ar.fingerprint_template_id,
-                ar.device_id,
-
-                ar.rfid_scanned_at,
-                ar.fingerprint_verified_at,
-                ar.scan_event_ref,
-                ar.marked_at,
-
-                cs.session_date,
-                cs.faculty_id,
-                f.full_name AS faculty_name,
-                cs.classroom_id,
-                c.room_no
-
-            FROM attendance_records ar
-
-            INNER JOIN enrollments e
-                ON e.enrollment_id = ar.enrollment_id
-
-            INNER JOIN students s
-                ON s.student_id = e.student_id
-
-            INNER JOIN class_sessions cs
-                ON cs.session_id = ar.session_id
-
-            INNER JOIN faculty f
-                ON f.faculty_id = cs.faculty_id
-
-            INNER JOIN classrooms c
-                ON c.classroom_id = cs.classroom_id
-
-            WHERE ar.attendance_id = ?
-
-            LIMIT 1
-            `,
+      SELECT
+          ar.attendance_id,
+          ar.session_id,
+          ar.enrollment_id,
+          e.student_id,
+          s.register_no,
+          s.full_name,
+          s.email,
+          ar.status,
+          ar.source,
+          ar.rfid_card_id,
+          ar.fingerprint_template_id,
+          ar.device_id,
+          ar.rfid_scanned_at,
+          ar.fingerprint_verified_at,
+          ar.scan_event_ref,
+          ar.marked_at,
+          cs.session_date,
+          cs.faculty_id,
+          f.full_name AS faculty_name,
+          cs.classroom_id,
+          c.room_no
+      FROM attendance_records ar
+      INNER JOIN enrollments e ON e.enrollment_id = ar.enrollment_id
+      INNER JOIN students s ON s.student_id = e.student_id
+      INNER JOIN class_sessions cs ON cs.session_id = ar.session_id
+      INNER JOIN faculty f ON f.faculty_id = cs.faculty_id
+      INNER JOIN classrooms c ON c.classroom_id = cs.classroom_id
+      WHERE ar.attendance_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -309,61 +364,75 @@ const getAttendanceById = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/attendance/student/:studentId
+ * Retrieves attendance records for a student. Enforces student privacy.
+ */
 const getStudentAttendance = async (req, res) => {
   try {
     const { studentId } = req.params;
 
-    const [records] = await pool.query(
-      `
-            SELECT
-                ar.attendance_id,
-                ar.session_id,
-                ar.enrollment_id,
+    // Student privacy: STUDENT role can only view their own records
+    if (req.user.role === "STUDENT") {
+      let effectiveStudentId = req.user.student_id;
+      if (!effectiveStudentId && req.user.user_id) {
+        const [u] = await pool.query(
+          "SELECT student_id FROM users WHERE user_id = ? LIMIT 1",
+          [req.user.user_id],
+        );
+        if (u.length > 0 && u[0].student_id) {
+          effectiveStudentId = u[0].student_id;
+        }
+      }
+      if (!effectiveStudentId || effectiveStudentId !== Number(studentId)) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to access another student's attendance",
+        });
+      }
+    }
 
-                s.student_id,
-                s.register_no,
-                s.full_name,
-
-                ar.status,
-                ar.source,
-                ar.marked_at,
-
-                cs.session_date,
-                cs.faculty_id,
-                f.full_name AS faculty_name,
-                cs.classroom_id,
-                c.room_no
-
-            FROM attendance_records ar
-
-            INNER JOIN enrollments e
-                ON e.enrollment_id = ar.enrollment_id
-
-            INNER JOIN students s
-                ON s.student_id = e.student_id
-
-            INNER JOIN class_sessions cs
-                ON cs.session_id = ar.session_id
-
-            INNER JOIN faculty f
-                ON f.faculty_id = cs.faculty_id
-
-            INNER JOIN classrooms c
-                ON c.classroom_id = cs.classroom_id
-
-            WHERE s.student_id = ?
-
-            ORDER BY cs.session_date DESC, ar.attendance_id DESC
-            `,
+    // Verify student exists
+    const [students] = await pool.query(
+      `SELECT student_id, register_no, full_name FROM students WHERE student_id = ? LIMIT 1`,
       [studentId],
     );
 
-    if (records.length === 0) {
+    if (students.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "No attendance records found for this student",
+        message: "Student not found",
       });
     }
+
+    const [records] = await pool.query(
+      `
+      SELECT
+          ar.attendance_id,
+          ar.session_id,
+          ar.enrollment_id,
+          s.student_id,
+          s.register_no,
+          s.full_name,
+          ar.status,
+          ar.source,
+          ar.marked_at,
+          cs.session_date,
+          cs.faculty_id,
+          f.full_name AS faculty_name,
+          cs.classroom_id,
+          c.room_no
+      FROM attendance_records ar
+      INNER JOIN enrollments e ON e.enrollment_id = ar.enrollment_id
+      INNER JOIN students s ON s.student_id = e.student_id
+      INNER JOIN class_sessions cs ON cs.session_id = ar.session_id
+      INNER JOIN faculty f ON f.faculty_id = cs.faculty_id
+      INNER JOIN classrooms c ON c.classroom_id = cs.classroom_id
+      WHERE s.student_id = ?
+      ORDER BY cs.session_date DESC, ar.attendance_id DESC
+      `,
+      [studentId],
+    );
 
     return res.status(200).json({
       success: true,
@@ -380,23 +449,26 @@ const getStudentAttendance = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/attendance/session/:sessionId
+ * Retrieves roster attendance for a session.
+ */
 const getSessionAttendance = async (req, res) => {
   try {
     const { sessionId } = req.params;
 
-    // Check whether session exists
     const [sessions] = await pool.query(
       `
-            SELECT
-                session_id,
-                status,
-                session_date,
-                faculty_id,
-                classroom_id
-            FROM class_sessions
-            WHERE session_id = ?
-            LIMIT 1
-            `,
+      SELECT
+          session_id,
+          status,
+          session_date,
+          faculty_id,
+          classroom_id
+      FROM class_sessions
+      WHERE session_id = ?
+      LIMIT 1
+      `,
       [sessionId],
     );
 
@@ -411,34 +483,24 @@ const getSessionAttendance = async (req, res) => {
 
     const [records] = await pool.query(
       `
-            SELECT
-                ar.attendance_id,
-                ar.session_id,
-                ar.enrollment_id,
-
-                e.student_id,
-                s.register_no,
-                s.full_name,
-                s.email,
-
-                e.status AS enrollment_status,
-
-                ar.status AS attendance_status,
-                ar.source,
-                ar.marked_at
-
-            FROM attendance_records ar
-
-            INNER JOIN enrollments e
-                ON e.enrollment_id = ar.enrollment_id
-
-            INNER JOIN students s
-                ON s.student_id = e.student_id
-
-            WHERE ar.session_id = ?
-
-            ORDER BY e.enrollment_id
-            `,
+      SELECT
+          ar.attendance_id,
+          ar.session_id,
+          ar.enrollment_id,
+          e.student_id,
+          s.register_no,
+          s.full_name,
+          s.email,
+          e.status AS enrollment_status,
+          ar.status AS attendance_status,
+          ar.source,
+          ar.marked_at
+      FROM attendance_records ar
+      INNER JOIN enrollments e ON e.enrollment_id = ar.enrollment_id
+      INNER JOIN students s ON s.student_id = e.student_id
+      WHERE ar.session_id = ?
+      ORDER BY e.enrollment_id ASC
+      `,
       [sessionId],
     );
 
@@ -465,23 +527,25 @@ const getSessionAttendance = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/attendance/staff/:facultyId
+ */
 const getFacultyAttendance = async (req, res) => {
   try {
     const { facultyId } = req.params;
 
-    // Check whether faculty exists
     const [faculty] = await pool.query(
       `
-            SELECT
-                faculty_id,
-                employee_code,
-                full_name,
-                email,
-                is_active
-            FROM faculty
-            WHERE faculty_id = ?
-            LIMIT 1
-            `,
+      SELECT
+          faculty_id,
+          employee_code,
+          full_name,
+          email,
+          is_active
+      FROM faculty
+      WHERE faculty_id = ?
+      LIMIT 1
+      `,
       [facultyId],
     );
 
@@ -494,45 +558,28 @@ const getFacultyAttendance = async (req, res) => {
 
     const [records] = await pool.query(
       `
-            SELECT
-                ar.attendance_id,
-                ar.session_id,
-                ar.enrollment_id,
-
-                e.student_id,
-                s.register_no,
-                s.full_name AS student_name,
-
-                ar.status AS attendance_status,
-                ar.source,
-                ar.marked_at,
-
-                cs.session_date,
-                cs.status AS session_status,
-
-                cs.classroom_id,
-                c.room_no
-
-            FROM attendance_records ar
-
-            INNER JOIN enrollments e
-                ON e.enrollment_id = ar.enrollment_id
-
-            INNER JOIN students s
-                ON s.student_id = e.student_id
-
-            INNER JOIN class_sessions cs
-                ON cs.session_id = ar.session_id
-
-            INNER JOIN classrooms c
-                ON c.classroom_id = cs.classroom_id
-
-            WHERE cs.faculty_id = ?
-
-            ORDER BY
-                cs.session_date DESC,
-                ar.attendance_id DESC
-            `,
+      SELECT
+          ar.attendance_id,
+          ar.session_id,
+          ar.enrollment_id,
+          e.student_id,
+          s.register_no,
+          s.full_name AS student_name,
+          ar.status AS attendance_status,
+          ar.source,
+          ar.marked_at,
+          cs.session_date,
+          cs.status AS session_status,
+          cs.classroom_id,
+          c.room_no
+      FROM attendance_records ar
+      INNER JOIN enrollments e ON e.enrollment_id = ar.enrollment_id
+      INNER JOIN students s ON s.student_id = e.student_id
+      INNER JOIN class_sessions cs ON cs.session_id = ar.session_id
+      INNER JOIN classrooms c ON c.classroom_id = cs.classroom_id
+      WHERE cs.faculty_id = ?
+      ORDER BY cs.session_date DESC, ar.attendance_id DESC
+      `,
       [facultyId],
     );
 
@@ -555,22 +602,44 @@ const getFacultyAttendance = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/attendance/student/:studentId/summary
+ */
 const getStudentAttendanceSummary = async (req, res) => {
   try {
     const { studentId } = req.params;
 
-    // Check whether student exists
+    // Student privacy: STUDENT role can only view their own records
+    if (req.user.role === "STUDENT") {
+      let effectiveStudentId = req.user.student_id;
+      if (!effectiveStudentId && req.user.user_id) {
+        const [u] = await pool.query(
+          "SELECT student_id FROM users WHERE user_id = ? LIMIT 1",
+          [req.user.user_id],
+        );
+        if (u.length > 0 && u[0].student_id) {
+          effectiveStudentId = u[0].student_id;
+        }
+      }
+      if (!effectiveStudentId || effectiveStudentId !== Number(studentId)) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to access another student's attendance summary",
+        });
+      }
+    }
+
     const [students] = await pool.query(
       `
-            SELECT
-                student_id,
-                register_no,
-                full_name,
-                email
-            FROM students
-            WHERE student_id = ?
-            LIMIT 1
-            `,
+      SELECT
+          student_id,
+          register_no,
+          full_name,
+          email
+      FROM students
+      WHERE student_id = ?
+      LIMIT 1
+      `,
       [studentId],
     );
 
@@ -583,56 +652,27 @@ const getStudentAttendanceSummary = async (req, res) => {
 
     const student = students[0];
 
-    // Calculate attendance summary
     const [summaryRows] = await pool.query(
       `
-            SELECT
-                COUNT(*) AS total_classes,
-
-                SUM(
-                    CASE
-                        WHEN ar.status = 'PRESENT' THEN 1
-                        ELSE 0
-                    END
-                ) AS present,
-
-                SUM(
-                    CASE
-                        WHEN ar.status = 'LATE' THEN 1
-                        ELSE 0
-                    END
-                ) AS late,
-
-                SUM(
-                    CASE
-                        WHEN ar.status = 'ABSENT' THEN 1
-                        ELSE 0
-                    END
-                ) AS absent
-
-            FROM attendance_records ar
-
-            INNER JOIN enrollments e
-                ON e.enrollment_id = ar.enrollment_id
-
-            WHERE e.student_id = ?
-            `,
+      SELECT
+          COUNT(*) AS total_classes,
+          SUM(CASE WHEN ar.status = 'PRESENT' THEN 1 ELSE 0 END) AS present,
+          SUM(CASE WHEN ar.status = 'LATE' THEN 1 ELSE 0 END) AS late,
+          SUM(CASE WHEN ar.status = 'ABSENT' THEN 1 ELSE 0 END) AS absent
+      FROM attendance_records ar
+      INNER JOIN enrollments e ON e.enrollment_id = ar.enrollment_id
+      WHERE e.student_id = ?
+      `,
       [studentId],
     );
 
     const summary = summaryRows[0];
-
     const totalClasses = Number(summary.total_classes) || 0;
     const present = Number(summary.present) || 0;
     const late = Number(summary.late) || 0;
     const absent = Number(summary.absent) || 0;
-
     const attended = present + late;
-
-    const attendancePercentage =
-      totalClasses > 0
-        ? Number(((attended / totalClasses) * 100).toFixed(2))
-        : 0;
+    const attendancePercentage = totalClasses > 0 ? Number(((attended / totalClasses) * 100).toFixed(2)) : 0;
 
     return res.status(200).json({
       success: true,
@@ -664,72 +704,60 @@ const getStudentAttendanceSummary = async (req, res) => {
   }
 };
 
+/**
+ * PUT /api/v1/attendance/records/:id or POST /api/v1/attendance/:id/override
+ * Overrides / corrects an attendance record with audit trail. ADMIN or assigned FACULTY.
+ */
 const overrideAttendance = async (req, res) => {
   const connection = await pool.getConnection();
 
   try {
     const { id } = req.params;
+    const { new_status, reason_code, reason_note, supporting_ref, status } = req.body || {};
 
-    const { new_status, reason_code, reason_note, supporting_ref } = req.body;
+    const targetStatus = new_status || status;
+    const targetReason = reason_code || "FACULTY_OVERRIDE";
 
-    // Validate required fields
-    if (!new_status || !reason_code) {
+    if (!targetStatus) {
       return res.status(400).json({
         success: false,
-        message: "new_status and reason_code are required",
+        message: "new_status or status is required",
       });
     }
 
-    // Validate attendance status
-    const allowedStatuses = ["PRESENT", "LATE", "ABSENT"];
-
-    if (!allowedStatuses.includes(new_status)) {
+    if (!ALLOWED_ATTENDANCE_STATUSES.includes(targetStatus)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid new attendance status",
+        message: "Invalid attendance status",
       });
     }
 
-    // Validate correction reason
-    const allowedReasons = [
-      "MEDICAL_LEAVE",
-      "ON_DUTY_LEAVE",
-      "DEVICE_FAILURE",
-      "FACULTY_OVERRIDE",
-      "DATA_ENTRY_ERROR",
-      "OTHER",
-    ];
-
-    if (!allowedReasons.includes(reason_code)) {
+    if (!ALLOWED_REASON_CODES.includes(targetReason)) {
       return res.status(400).json({
         success: false,
         message: "Invalid correction reason",
       });
     }
 
-    // Get existing attendance record
     const [attendanceRows] = await connection.query(
       `
-            SELECT
-                ar.attendance_id,
-                ar.session_id,
-                ar.enrollment_id,
-                ar.status,
-                e.student_id,
-                s.register_no,
-                s.full_name AS student_name
-            FROM attendance_records ar
-
-            INNER JOIN enrollments e
-                ON e.enrollment_id = ar.enrollment_id
-
-            INNER JOIN students s
-                ON s.student_id = e.student_id
-
-            WHERE ar.attendance_id = ?
-
-            LIMIT 1
-            `,
+      SELECT
+          ar.attendance_id,
+          ar.session_id,
+          ar.enrollment_id,
+          ar.status,
+          cs.faculty_id,
+          cs.status AS session_status,
+          e.student_id,
+          s.register_no,
+          s.full_name AS student_name
+      FROM attendance_records ar
+      INNER JOIN class_sessions cs ON cs.session_id = ar.session_id
+      INNER JOIN enrollments e ON e.enrollment_id = ar.enrollment_id
+      INNER JOIN students s ON s.student_id = e.student_id
+      WHERE ar.attendance_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -742,41 +770,46 @@ const overrideAttendance = async (req, res) => {
 
     const attendance = attendanceRows[0];
 
-    // Prevent unnecessary correction
-    if (attendance.status === new_status) {
+    // Ownership check for FACULTY
+    if (req.user.role === "FACULTY" && req.user.faculty_id && req.user.faculty_id !== attendance.faculty_id) {
+      return res.status(403).json({
+        success: false,
+        message: "Faculty cannot override attendance for another faculty's session",
+      });
+    }
+
+    if (attendance.status === targetStatus) {
       return res.status(400).json({
         success: false,
         message: "New attendance status is the same as the current status",
       });
     }
 
-    // Get current authenticated user
     const requestedBy = req.user.user_id;
 
     await connection.beginTransaction();
 
-    // Insert correction history
     const [correctionResult] = await connection.query(
       `
-            INSERT INTO attendance_corrections (
-                attendance_id,
-                previous_status,
-                new_status,
-                reason_code,
-                reason_note,
-                supporting_ref,
-                requested_by,
-                approval_status,
-                decided_by,
-                decided_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, NOW())
-            `,
+      INSERT INTO attendance_corrections (
+          attendance_id,
+          previous_status,
+          new_status,
+          reason_code,
+          reason_note,
+          supporting_ref,
+          requested_by,
+          approval_status,
+          decided_by,
+          decided_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, NOW())
+      `,
       [
         attendance.attendance_id,
         attendance.status,
-        new_status,
-        reason_code,
+        targetStatus,
+        targetReason,
         reason_note || null,
         supporting_ref || null,
         requestedBy,
@@ -784,17 +817,16 @@ const overrideAttendance = async (req, res) => {
       ],
     );
 
-    // Update attendance record
     await connection.query(
       `
-            UPDATE attendance_records
-            SET
-                status = ?,
-                source = 'CORRECTION',
-                marked_at = NOW()
-            WHERE attendance_id = ?
-            `,
-      [new_status, attendance.attendance_id],
+      UPDATE attendance_records
+      SET
+          status = ?,
+          source = 'CORRECTION',
+          marked_at = NOW()
+      WHERE attendance_id = ?
+      `,
+      [targetStatus, attendance.attendance_id],
     );
 
     await connection.commit();
@@ -809,8 +841,8 @@ const overrideAttendance = async (req, res) => {
         register_no: attendance.register_no,
         student_name: attendance.student_name,
         previous_status: attendance.status,
-        new_status,
-        reason_code,
+        new_status: targetStatus,
+        reason_code: targetReason,
         reason_note: reason_note || null,
         supporting_ref: supporting_ref || null,
         approval_status: "APPROVED",
@@ -821,7 +853,6 @@ const overrideAttendance = async (req, res) => {
     });
   } catch (error) {
     await connection.rollback();
-
     console.error("Override attendance error:", error);
 
     return res.status(500).json({
@@ -834,12 +865,12 @@ const overrideAttendance = async (req, res) => {
 };
 
 module.exports = {
+  createAttendance,
   getAttendanceRecords,
   getAttendanceById,
   getStudentAttendance,
-  getStudentAttendanceSummary,
   getSessionAttendance,
   getFacultyAttendance,
-  createAttendance,
+  getStudentAttendanceSummary,
   overrideAttendance,
 };

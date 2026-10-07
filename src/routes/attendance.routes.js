@@ -16,25 +16,29 @@ const authorizeRoles = require("../middleware/role.middleware");
 
 const router = express.Router();
 
-// GET /attendance
+// GET /api/v1/attendance
 router.get("/", authenticateToken, getAttendanceRecords);
 
+// Student attendance
 router.get("/student/:studentId", authenticateToken, getStudentAttendance);
-
-router.get("/session/:sessionId", authenticateToken, getSessionAttendance);
-
-router.get("/staf/t/:facultyId", authenticateToken, getFacultyAttendance);
-
 router.get(
   "/student/:studentId/summary",
   authenticateToken,
   getStudentAttendanceSummary,
 );
 
-// GET /attendance/:id
+// Session roster attendance
+router.get("/session/:sessionId", authenticateToken, getSessionAttendance);
+
+// Faculty attendance
+router.get("/staf/t/:facultyId", authenticateToken, getFacultyAttendance);
+router.get("/staff/:facultyId", authenticateToken, getFacultyAttendance);
+
+// Attendance record detail
+router.get("/records/:id", authenticateToken, getAttendanceById);
 router.get("/:id", authenticateToken, getAttendanceById);
 
-// POST /attendance
+// Create attendance record
 router.post(
   "/",
   authenticateToken,
@@ -43,9 +47,32 @@ router.post(
 );
 
 router.post(
+  "/session/:sessionId/records",
+  authenticateToken,
+  authorizeRoles("ADMIN", "FACULTY"),
+  createAttendance,
+);
+
+// Override / update attendance record
+router.post(
   "/:id/override",
   authenticateToken,
   authorizeRoles("ADMIN", "FACULTY"),
   overrideAttendance,
 );
+
+router.put(
+  "/records/:id",
+  authenticateToken,
+  authorizeRoles("ADMIN", "FACULTY"),
+  overrideAttendance,
+);
+
+router.put(
+  "/:id",
+  authenticateToken,
+  authorizeRoles("ADMIN", "FACULTY"),
+  overrideAttendance,
+);
+
 module.exports = router;
