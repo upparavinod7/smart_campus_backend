@@ -3,7 +3,7 @@
 > **Authoritative Location**: `smart_campus_backend/docs/DEVELOPMENT_TRACKER.md`  
 > **Institution**: Joy University  
 > **System**: Smart Campus ERP System  
-> **Last Verified Update**: 2026-10-07T09:15:00+05:30  
+> **Last Verified Update**: 2026-10-07T10:20:00+05:30  
 
 ---
 
@@ -12,15 +12,15 @@
 | Metric | Count |
 | :--- | :--- |
 | **Total Identified Features** | 12 |
-| **Not Started** | 1 |
+| **Not Started** | 0 |
 | **In Progress** | 0 |
 | **Implemented** | 0 |
-| **Tested** | 10 |
-| **Pushed** | 8 |
-| **Pull Requests Created** | 8 (URLs generated) |
+| **Tested** | 11 |
+| **Pushed** | 9 |
+| **Pull Requests Created** | 9 (URLs generated) |
 | **Merged** | 0 |
 | **Blocked Work** | 0 |
-| **Next Recommended Feature** | `FEAT-010`: Academic Offerings, Subjects & Timetable Overview |
+| **Next Recommended Feature** | `FEAT-011`: Faculty Portal Workflows |
 
 ---
 
@@ -312,27 +312,48 @@
 
 ### `FEAT-010`: Academic Offerings, Subjects & Timetable Overview
 - **Feature ID**: `FEAT-010`
-- **Feature Name**: Academic Subjects & Course Offerings
+- **Feature Name**: Academic Offerings, Subjects & Timetable Overview
 - **Module**: Academics Management
-- **Backend Status**: `NOT_STARTED` (Queries exist in studentPortal controller; Admin endpoints need standard routes)
+- **Backend Status**: `TESTED`
 - **Frontend Status**: `NOT_STARTED`
 - **API Endpoints**:
+  - `GET /api/v1/subjects`
+  - `GET /api/v1/subjects/:id`
+  - `POST /api/v1/subjects`
+  - `PUT /api/v1/subjects/:id`
+  - `DELETE /api/v1/subjects/:id`
   - `GET /api/v1/academics/subjects`
+  - `GET /api/v1/course-offerings`
+  - `GET /api/v1/course-offerings/:id`
+  - `POST /api/v1/course-offerings`
+  - `PUT /api/v1/course-offerings/:id`
+  - `DELETE /api/v1/course-offerings/:id`
   - `GET /api/v1/academics/courses`
-- **Backend Branch**: `feature/academics-management`
-- **Backend Commit SHA**: TBD
-- **Frontend Branch**: `feature/academics-management`
+  - `GET /api/v1/sections`
+  - `GET /api/v1/sections/:id`
+  - `POST /api/v1/sections`
+  - `PUT /api/v1/sections/:id`
+  - `DELETE /api/v1/sections/:id`
+  - `GET /api/v1/timetable`
+  - `GET /api/v1/timetable/:id`
+  - `POST /api/v1/timetable`
+  - `PUT /api/v1/timetable/:id`
+  - `DELETE /api/v1/timetable/:id`
+- **Backend Branch**: `feature/academic-offerings-subjects-timetable`
+- **Backend Commit SHA**: `c8b7d23`
+- **Frontend Branch**: `feature/academic-offerings-subjects-timetable`
 - **Frontend Commit SHA**: TBD
-- **Backend Test Results**: Pending
-- **Frontend Build/Test Results**: Pending
-- **Integration Test Results**: Pending
-- **Backend Push Status**: `NOT_STARTED`
+- **Backend Test Results**: `npm test` PASSED (50/50 tests passing including 27 dedicated academics tests covering subjects CRUD, soft deactivation, duplicate code rejection 409, course offerings CRUD, unique constraint (term_id, subject_id) 409, sections CRUD, unique constraint (offering_id, section_code) 409, timetable CRUD, schedule conflict detection across faculty, classroom, and section 409, boundary abutting slots handling 201, self-exclusion during update, and academics aliases)
+- **Frontend Build/Test Results**: Pending UI implementation
+- **Integration Test Results**: Verified full lifecycle across `subjects`, `course_offerings`, `sections`, and `timetable_slots` with relational joins to `departments`, `schools`, `academic_terms`, `academic_years`, `faculty`, `classrooms`, and `blocks`
+- **Backend Push Status**: `PUSHED`
 - **Frontend Push Status**: `NOT_STARTED`
-- **Pull Request URLs**: N/A
+- **Pull Request URLs**:
+  - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/feature/academic-offerings-subjects-timetable`
 - **Merge Status**: Open
 - **Blockers**: None
-- **Next Steps**: Provide admin read routes for subjects and course offerings
-- **Last Verified Update**: 2026-09-28T19:22:00+05:30
+- **Next Steps**: Awaiting user approval to merge; proceed to FEAT-011 (Faculty Portal Workflows)
+- **Last Verified Update**: 2026-10-07T10:20:00+05:30
 
 ---
 
@@ -438,7 +459,27 @@
 | `POST` | `/api/v1/attendance` | `ADMIN`, `FACULTY` | Yes | Mark manual attendance | `NOT_INTEGRATED` | Pending Attendance Marker |
 | `POST` | `/api/v1/attendance/:id/override` | `ADMIN`, `FACULTY` | Yes | Override attendance status | `NOT_INTEGRATED` | Pending Override Dialog |
 | `GET` | `/api/v1/admin/dashboard-stats` | `ADMIN` | Yes | Institutional aggregate metrics | `INTEGRATED` | `AdminDashboardOverview.jsx` |
-| `GET` | `/api/v1/academics/subjects` | Authenticated | Yes | Subjects catalog | `BACKEND_MISSING` | Pending Academics View |
-| `GET` | `/api/v1/academics/courses` | Authenticated | Yes | Course offerings | `BACKEND_MISSING` | Pending Course Offerings |
+| `GET` | `/api/v1/subjects` | Authenticated | Yes | List academic subjects | `BACKEND_READY` | Pending Academics View |
+| `GET` | `/api/v1/subjects/:id` | Authenticated | Yes | Subject details | `BACKEND_READY` | Pending Subject Details |
+| `POST` | `/api/v1/subjects` | `ADMIN` | Yes | Create academic subject | `BACKEND_READY` | Pending Subject Form |
+| `PUT` | `/api/v1/subjects/:id` | `ADMIN` | Yes | Update academic subject | `BACKEND_READY` | Pending Subject Form |
+| `DELETE` | `/api/v1/subjects/:id` | `ADMIN` | Yes | Deactivate subject | `BACKEND_READY` | Pending Deactivate Action |
+| `GET` | `/api/v1/academics/subjects` | Authenticated | Yes | Subjects catalog (alias) | `BACKEND_READY` | Pending Academics View |
+| `GET` | `/api/v1/course-offerings` | Authenticated | Yes | List course offerings | `BACKEND_READY` | Pending Course Offerings |
+| `GET` | `/api/v1/course-offerings/:id` | Authenticated | Yes | Course offering details | `BACKEND_READY` | Pending Offering Details |
+| `POST` | `/api/v1/course-offerings` | `ADMIN` | Yes | Create course offering | `BACKEND_READY` | Pending Offering Form |
+| `PUT` | `/api/v1/course-offerings/:id` | `ADMIN` | Yes | Update course offering | `BACKEND_READY` | Pending Offering Form |
+| `DELETE` | `/api/v1/course-offerings/:id` | `ADMIN` | Yes | Delete course offering | `BACKEND_READY` | Pending Delete Action |
+| `GET` | `/api/v1/academics/courses` | Authenticated | Yes | Course offerings catalog (alias) | `BACKEND_READY` | Pending Course Offerings |
+| `GET` | `/api/v1/sections` | Authenticated | Yes | List course sections | `BACKEND_READY` | Pending Section View |
+| `GET` | `/api/v1/sections/:id` | Authenticated | Yes | Section details | `BACKEND_READY` | Pending Section Details |
+| `POST` | `/api/v1/sections` | `ADMIN` | Yes | Create course section | `BACKEND_READY` | Pending Section Form |
+| `PUT` | `/api/v1/sections/:id` | `ADMIN` | Yes | Update course section | `BACKEND_READY` | Pending Section Form |
+| `DELETE` | `/api/v1/sections/:id` | `ADMIN` | Yes | Delete course section | `BACKEND_READY` | Pending Delete Action |
+| `GET` | `/api/v1/timetable` | Authenticated | Yes | List timetable slots | `BACKEND_READY` | Pending Timetable View |
+| `GET` | `/api/v1/timetable/:id` | Authenticated | Yes | Timetable slot details | `BACKEND_READY` | Pending Timetable Details |
+| `POST` | `/api/v1/timetable` | `ADMIN` | Yes | Create timetable slot with conflict check | `BACKEND_READY` | Pending Timetable Form |
+| `PUT` | `/api/v1/timetable/:id` | `ADMIN` | Yes | Update timetable slot | `BACKEND_READY` | Pending Timetable Form |
+| `DELETE` | `/api/v1/timetable/:id` | `ADMIN` | Yes | Deactivate timetable slot | `BACKEND_READY` | Pending Deactivate Action |
 | `*` | `/api/v1/library/*` | - | - | Library management | `OUT_OF_SCOPE / BACKEND_MISSING` | N/A |
 | `*` | `/api/v1/visitors/*` | - | - | Visitor management | `OUT_OF_SCOPE / BACKEND_MISSING` | N/A |
