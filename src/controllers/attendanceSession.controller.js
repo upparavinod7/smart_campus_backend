@@ -194,6 +194,9 @@ const createAttendanceSession = async (req, res) => {
       });
     }
 
+    const resolvedPresentUntil = present_until || scheduled_start;
+    const resolvedLateUntil = late_until || scheduled_end;
+
     const [result] = await pool.query(
       `
             INSERT INTO class_sessions (
@@ -216,8 +219,8 @@ const createAttendanceSession = async (req, res) => {
         classroom_id,
         scheduled_start,
         scheduled_end,
-        present_until ?? null,
-        late_until ?? null,
+        resolvedPresentUntil,
+        resolvedLateUntil,
       ],
     );
 
@@ -232,8 +235,8 @@ const createAttendanceSession = async (req, res) => {
         classroom_id,
         scheduled_start,
         scheduled_end,
-        present_until: present_until ?? null,
-        late_until: late_until ?? null,
+        present_until: resolvedPresentUntil,
+        late_until: resolvedLateUntil,
         status: "SCHEDULED",
       },
     });

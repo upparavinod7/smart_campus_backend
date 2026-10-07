@@ -1,6 +1,8 @@
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
+const pool = require("../config/mysql");
 
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -22,17 +24,44 @@ const authenticateToken = (req, res, next) => {
 
     const token = parts[1];
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtErr) {
+      console.error("JWT verification error:", jwtErr.message);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired token",
+      });
+    }
 
-    req.user = decoded;
+    const tokenIdentifier =
+      decoded.jti || crypto.createHash("sha256").update(token).digest("hex");
+
+    const [revoked] = await pool.query(
+      "SELECT 1 FROM revoked_tokens WHERE jti = ? LIMIT 1",
+      [tokenIdentifier],
+    );
+
+    if (revoked && revoked.length > 0) {
+      return res.status(401).json({
+        success: false,
+        message: "Token has been revoked",
+      });
+    }
+
+    req.user = {
+      ...decoded,
+      jti: tokenIdentifier,
+    };
 
     next();
   } catch (error) {
     console.error("Authentication error:", error.message);
 
-    return res.status(401).json({
+    return res.status(500).json({
       success: false,
-      message: "Invalid or expired token",
+      message: "Internal authentication error",
     });
   }
 };
