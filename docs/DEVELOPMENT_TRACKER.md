@@ -3,7 +3,7 @@
 > **Authoritative Location**: `smart_campus_backend/docs/DEVELOPMENT_TRACKER.md`  
 > **Institution**: Joy University  
 > **System**: Smart Campus ERP System  
-> **Last Verified Update**: 2026-10-07T11:35:00+05:30  
+> **Last Verified Update**: 2026-10-07T15:00:00+05:30  
 
 ---
 
@@ -12,15 +12,13 @@
 | Metric | Count |
 | :--- | :--- |
 | **Total Identified Features** | 12 |
-| **Not Started** | 0 |
-| **In Progress** | 0 |
-| **Implemented** | 0 |
-| **Tested** | 12 |
-| **Pushed** | 11 |
-| **Pull Requests Created** | 11 (URLs generated) |
-| **Merged** | 0 |
-| **Blocked Work** | 0 |
-| **Next Recommended Feature** | BACKEND INTEGRATION COMPLETED (94/94 tests passing, 76.29% coverage across all 12 features on `feature/backend-integration`). Proceeding with FRONTEND API INTEGRATION & MISSING UI. |
+| **Backend Feature Implementation** | 12 / 12 Completed |
+| **Backend Integration Status** | Complete (`feature/backend-integration` @ `32cf27f`) |
+| **Backend Regression Test Suite** | 94 / 94 Passing (0 failed, 0 skipped, line coverage 76.29%, functions 90.26%) |
+| **Frontend API Integration Status** | Complete (`feature/frontend-integration` @ `12d0e22`) |
+| **Frontend Build & Lint Quality** | 0 lint errors, production Vite build passed |
+| **Cross-Role E2E Persona QA** | 100% Verified (Admin, Faculty, Student authentic workflows & security barriers) |
+| **Next Recommended Milestone** | RELEASE TO MAIN (Consolidate `feature/backend-integration` into backend `main` & `feature/frontend-integration` into frontend `main`, tag `v1.0.0-mvp`) |
 
 ---
 
@@ -415,8 +413,61 @@
   - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/feature/automated-test-suite-quality-verification`
 - **Merge Status**: Open
 - **Blockers**: None
-- **Next Steps**: Awaiting user approval to merge feature branches into integration base branch; proceed with frontend integration
+- **Next Steps**: Backend integration completed and verified with 94/94 passing tests
 - **Last Verified Update**: 2026-10-07T12:16:00+05:30
+
+---
+
+### `INTEG-001`: Backend Master Integration & Regression Hardening
+- **Feature ID**: `INTEG-001`
+- **Feature Name**: Backend Master Integration & Regression Hardening
+- **Module**: Core Backend Integration
+- **Backend Status**: `TESTED`
+- **Frontend Status**: `NOT_APPLICABLE`
+- **API Endpoints**: Full Suite (`/auth/*`, `/admin/*`, `/students/*`, `/staff/t/*`, `/departments/*`, `/blocks/*`, `/classrooms/*`, `/attendance/*`, `/student/me/*`, `/subjects/*`, `/course-offerings/*`, `/sections/*`, `/timetable/*`, `/faculty/*`)
+- **Backend Branch**: `feature/backend-integration`
+- **Backend Commit SHA**: `32cf27f`
+- **Frontend Branch**: N/A
+- **Frontend Commit SHA**: N/A
+- **Backend Test Results**: 94/94 integration tests passing (`npm test`, 0 failed, 0 skipped, line coverage 76.29%, branch coverage 60.16%, function coverage 90.26%)
+- **Frontend Build/Test Results**: N/A
+- **Integration Test Results**: Verified full consolidation of FEAT-005 through FEAT-012 with strict RBAC, database foreign key integrity, schedule conflict engine, token revocation, and faculty ownership isolation.
+- **Backend Push Status**: `PUSHED`
+- **Frontend Push Status**: N/A
+- **Pull Request URLs**:
+  - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/feature/backend-integration`
+- **Merge Status**: Ready for merge to `main`
+- **Blockers**: None
+- **Last Verified Update**: 2026-10-07T13:48:00+05:30
+
+---
+
+### `INTEG-002`: Frontend API Integration, Role-Based 403 Routing Resolution, Academics Management & Full QA
+- **Feature ID**: `INTEG-002`
+- **Feature Name**: Frontend API Integration, Role-Based 403 Routing Resolution, Academics Management & Full QA
+- **Module**: Frontend Client & UI
+- **Backend Status**: `TESTED`
+- **Frontend Status**: `TESTED & PUSHED`
+- **API Endpoints**: All Backend APIs wired to dedicated client modules (`src/api/auth.js`, `src/api/admin.js`, `src/api/student.js`, `src/api/faculty.js`, `src/api/academics.js`, `src/api/attendance.js`)
+- **Backend Branch**: `feature/backend-integration`
+- **Backend Commit SHA**: `32cf27f`
+- **Frontend Branch**: `feature/frontend-integration`
+- **Frontend Commit SHA**: `12d0e22`
+- **Backend Test Results**: 94/94 passing tests
+- **Frontend Build/Test Results**: ESLint 0 errors / 0 warnings (`npm run lint`), Vite production build succeeded in 269ms (`npm run build`)
+- **Integration Test Results**: 
+  - Complete multi-persona E2E test passed for Faculty (`FAC001`), Admin (`admin`), and Student (`J26AIM001`).
+  - Resolved 403 Forbidden errors for Faculty by creating dedicated faculty views (`FacultyTimetableView`, `FacultySessionsView`, `FacultyAttendanceLogsView`, `FacultyDashboardOverview`) that call `/api/v1/faculty/*` endpoints rather than student/admin endpoints.
+  - Implemented comprehensive Academics Management UI (`AcademicsManagementView.jsx`) with 4 tabs: Subjects, Course Offerings, Sections, and Timetable with schedule conflict alerts.
+  - Verified cross-role security boundaries (RBAC 403 Forbidden enforced without weakening permissions).
+- **Backend Push Status**: `PUSHED`
+- **Frontend Push Status**: `PUSHED`
+- **Pull Request URLs**:
+  - Frontend: `https://github.com/sahayaglancy35-blip/smart_campus_frontend/pull/new/feature/frontend-integration`
+  - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/feature/backend-integration`
+- **Merge Status**: Ready for merge to `main`
+- **Blockers**: None
+- **Last Verified Update**: 2026-10-07T15:00:00+05:30
 
 ---
 
@@ -427,12 +478,13 @@
 | `GET` | `/api/v1/test` | Any | No | API health check | `INTEGRATED` | System |
 | `POST` | `/api/v1/auth/login` | Any | No | User login & JWT issuance | `INTEGRATED` | `LoginPage.jsx` |
 | `GET` | `/api/v1/auth/me` | Authenticated | Yes | Current user context | `INTEGRATED` | `App.jsx` |
-| `GET` | `/api/v1/student/me` | `STUDENT` | Yes | Student profile & degree details | `INTEGRATED` | `App.jsx`, `Dashboard.jsx` |
-| `GET` | `/api/v1/student/me/attendance/summary` | `STUDENT` | Yes | Aggregate attendance summary | `INTEGRATED` | `AttendanceSummary` |
-| `GET` | `/api/v1/student/me/timetable` | `STUDENT` | Yes | Weekly class schedule | `INTEGRATED` | `StudentTimetable` |
-| `GET` | `/api/v1/student/me/courses` | `STUDENT` | Yes | Enrolled course list & credits | `PARTIALLY_INTEGRATED` | `StudentCourses` (Nav missing) |
-| `GET` | `/api/v1/student/me/attendance` | `STUDENT` | Yes | Granular session attendance log | `NOT_INTEGRATED` | Pending Attendance Logs view |
-| `GET` | `/api/v1/student/me/dashboard` | `STUDENT` | Yes | Full student dashboard payload | `NOT_INTEGRATED` | Pending Dashboard Overview |
+| `POST` | `/api/v1/auth/logout` | Authenticated | Yes | Server-side JWT revocation | `INTEGRATED` | `App.jsx` |
+| `GET` | `/api/v1/student/me` | `STUDENT` | Yes | Student profile & degree details | `INTEGRATED` | `App.jsx`, `StudentDashboardOverview.jsx` |
+| `GET` | `/api/v1/student/me/attendance/summary` | `STUDENT` | Yes | Aggregate attendance summary | `INTEGRATED` | `AttendanceSummaryView.jsx` |
+| `GET` | `/api/v1/student/me/timetable` | `STUDENT` | Yes | Weekly class schedule | `INTEGRATED` | `StudentTimetableView.jsx` |
+| `GET` | `/api/v1/student/me/courses` | `STUDENT` | Yes | Enrolled course list & credits | `INTEGRATED` | `StudentCoursesView.jsx` |
+| `GET` | `/api/v1/student/me/attendance` | `STUDENT` | Yes | Granular session attendance log | `INTEGRATED` | `AttendanceHistoryView.jsx` |
+| `GET` | `/api/v1/student/me/dashboard` | `STUDENT` | Yes | Full student dashboard payload | `INTEGRATED` | `StudentDashboardOverview.jsx` |
 | `GET` | `/api/v1/students` | `ADMIN` | Yes | List all students | `INTEGRATED` | `StudentManagementView.jsx` |
 | `GET` | `/api/v1/students/:id` | `ADMIN` | Yes | Retrieve single student profile | `INTEGRATED` | `StudentManagementView.jsx` (Detail Modal) |
 | `POST` | `/api/v1/students` | `ADMIN` | Yes | Create student record | `INTEGRATED` | `StudentManagementView.jsx` (Create Modal) |
@@ -443,67 +495,66 @@
 | `POST` | `/api/v1/staff/t` | `ADMIN` | Yes | Create faculty profile | `INTEGRATED` | `FacultyManagementView.jsx` (Create Modal) |
 | `PUT` | `/api/v1/staff/t/:id` | `ADMIN` | Yes | Update faculty profile | `INTEGRATED` | `FacultyManagementView.jsx` (Edit Modal) |
 | `DELETE` | `/api/v1/staff/t/:id` | `ADMIN` | Yes | Deactivate faculty profile | `INTEGRATED` | `FacultyManagementView.jsx` (Deactivate Modal) |
-| `GET` | `/api/v1/departments` | Authenticated | Yes | List academic departments | `NOT_INTEGRATED` | Pending Department Management |
-| `GET` | `/api/v1/departments/:id` | Authenticated | Yes | Department details | `NOT_INTEGRATED` | Pending Department View |
-| `POST` | `/api/v1/departments` | `ADMIN` | Yes | Create academic department | `NOT_INTEGRATED` | Pending Department Form |
-| `PUT` | `/api/v1/departments/:id` | `ADMIN` | Yes | Update academic department | `NOT_INTEGRATED` | Pending Department Form |
-| `DELETE` | `/api/v1/departments/:id` | `ADMIN` | Yes | Delete department | `NOT_INTEGRATED` | Pending Delete Action |
-| `GET` | `/api/v1/blocks` | Authenticated | Yes | List campus blocks/buildings | `NOT_INTEGRATED` | Pending Block Management |
-| `GET` | `/api/v1/blocks/:id` | Authenticated | Yes | Campus block details | `NOT_INTEGRATED` | Pending Block View |
-| `POST` | `/api/v1/blocks` | `ADMIN` | Yes | Create campus block | `NOT_INTEGRATED` | Pending Block Form |
-| `PUT` | `/api/v1/blocks/:id` | `ADMIN` | Yes | Update campus block | `NOT_INTEGRATED` | Pending Block Form |
-| `DELETE` | `/api/v1/blocks/:id` | `ADMIN` | Yes | Delete campus block | `NOT_INTEGRATED` | Pending Delete Action |
-| `GET` | `/api/v1/classrooms` | Authenticated | Yes | List classrooms & labs | `NOT_INTEGRATED` | Pending Classroom Management |
-| `GET` | `/api/v1/classrooms/:id` | Authenticated | Yes | Classroom details | `NOT_INTEGRATED` | Pending Classroom View |
-| `POST` | `/api/v1/classrooms` | `ADMIN` | Yes | Create classroom | `NOT_INTEGRATED` | Pending Classroom Form |
-| `PUT` | `/api/v1/classrooms/:id` | `ADMIN` | Yes | Update classroom | `NOT_INTEGRATED` | Pending Classroom Form |
-| `DELETE` | `/api/v1/classrooms/:id` | `ADMIN` | Yes | Deactivate classroom | `NOT_INTEGRATED` | Pending Classroom Delete |
-| `GET` | `/api/v1/attendance/sessions` | Authenticated | Yes | List class attendance sessions | `NOT_INTEGRATED` | Pending Attendance Portal |
-| `GET` | `/api/v1/attendance/sessions/:id` | Authenticated | Yes | Attendance session details | `NOT_INTEGRATED` | Pending Session View |
-| `GET` | `/api/v1/attendance/sessions/:id/status` | Authenticated | Yes | Attendance session status | `NOT_INTEGRATED` | Pending Session Monitor |
-| `POST` | `/api/v1/attendance/sessions` | `ADMIN`, `FACULTY` | Yes | Create attendance session | `NOT_INTEGRATED` | Pending Session Form |
-| `POST` | `/api/v1/attendance/sessions/:id/start` | `ADMIN`, `FACULTY` | Yes | Open/start session | `NOT_INTEGRATED` | Pending Start Button |
-| `POST` | `/api/v1/attendance/sessions/:id/finalize` | `ADMIN`, `FACULTY` | Yes | Close/finalize session | `NOT_INTEGRATED` | Pending Finalize Button |
-| `GET` | `/api/v1/attendance` | Authenticated | Yes | List attendance records | `NOT_INTEGRATED` | Pending Attendance Records |
-| `GET` | `/api/v1/attendance/session/:sessionId` | Authenticated | Yes | Session roster attendance | `NOT_INTEGRATED` | Pending Session Roster |
-| `GET` | `/api/v1/attendance/staf/t/:facultyId` | Authenticated | Yes | Faculty attendance sessions | `NOT_INTEGRATED` | Pending Faculty Sessions |
-| `POST` | `/api/v1/attendance` | `ADMIN`, `FACULTY` | Yes | Mark manual attendance | `NOT_INTEGRATED` | Pending Attendance Marker |
-| `POST` | `/api/v1/attendance/:id/override` | `ADMIN`, `FACULTY` | Yes | Override attendance status | `NOT_INTEGRATED` | Pending Override Dialog |
+| `GET` | `/api/v1/departments` | Authenticated | Yes | List academic departments | `INTEGRATED` | `DepartmentManagementView.jsx` |
+| `GET` | `/api/v1/departments/:id` | Authenticated | Yes | Department details | `INTEGRATED` | `DepartmentManagementView.jsx` |
+| `POST` | `/api/v1/departments` | `ADMIN` | Yes | Create academic department | `INTEGRATED` | `DepartmentManagementView.jsx` |
+| `PUT` | `/api/v1/departments/:id` | `ADMIN` | Yes | Update academic department | `INTEGRATED` | `DepartmentManagementView.jsx` |
+| `DELETE` | `/api/v1/departments/:id` | `ADMIN` | Yes | Delete department | `INTEGRATED` | `DepartmentManagementView.jsx` |
+| `GET` | `/api/v1/blocks` | Authenticated | Yes | List campus blocks/buildings | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `GET` | `/api/v1/blocks/:id` | Authenticated | Yes | Campus block details | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `POST` | `/api/v1/blocks` | `ADMIN` | Yes | Create campus block | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `PUT` | `/api/v1/blocks/:id` | `ADMIN` | Yes | Update campus block | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `DELETE` | `/api/v1/blocks/:id` | `ADMIN` | Yes | Delete campus block | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `GET` | `/api/v1/classrooms` | Authenticated | Yes | List classrooms & labs | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `GET` | `/api/v1/classrooms/:id` | Authenticated | Yes | Classroom details | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `POST` | `/api/v1/classrooms` | `ADMIN` | Yes | Create classroom | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `PUT` | `/api/v1/classrooms/:id` | `ADMIN` | Yes | Update classroom | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `DELETE` | `/api/v1/classrooms/:id` | `ADMIN` | Yes | Deactivate classroom | `INTEGRATED` | `InfrastructureManagementView.jsx` |
+| `GET` | `/api/v1/attendance/sessions` | Authenticated | Yes | List class attendance sessions | `INTEGRATED` | `AttendanceSessionsView.jsx` |
+| `GET` | `/api/v1/attendance/sessions/:id` | Authenticated | Yes | Attendance session details | `INTEGRATED` | `AttendanceSessionsView.jsx` |
+| `GET` | `/api/v1/attendance/sessions/:id/status` | Authenticated | Yes | Attendance session status | `INTEGRATED` | `AttendanceSessionsView.jsx` |
+| `POST` | `/api/v1/attendance/sessions` | `ADMIN`, `FACULTY` | Yes | Create attendance session | `INTEGRATED` | `AttendanceSessionsView.jsx` |
+| `POST` | `/api/v1/attendance/sessions/:id/start` | `ADMIN`, `FACULTY` | Yes | Open/start session | `INTEGRATED` | `AttendanceSessionsView.jsx` |
+| `POST` | `/api/v1/attendance/sessions/:id/finalize` | `ADMIN`, `FACULTY` | Yes | Close/finalize session | `INTEGRATED` | `AttendanceSessionsView.jsx` |
+| `GET` | `/api/v1/attendance` | Authenticated | Yes | List attendance records | `INTEGRATED` | `AttendanceSessionsView.jsx` |
+| `GET` | `/api/v1/attendance/session/:sessionId` | Authenticated | Yes | Session roster attendance | `INTEGRATED` | `AttendanceSessionsView.jsx` |
+| `POST` | `/api/v1/attendance` | `ADMIN`, `FACULTY` | Yes | Mark manual attendance | `INTEGRATED` | `AttendanceSessionsView.jsx` |
+| `POST` | `/api/v1/attendance/:id/override` | `ADMIN`, `FACULTY` | Yes | Override attendance status | `INTEGRATED` | `AttendanceSessionsView.jsx` |
 | `GET` | `/api/v1/admin/dashboard-stats` | `ADMIN` | Yes | Institutional aggregate metrics | `INTEGRATED` | `AdminDashboardOverview.jsx` |
-| `GET` | `/api/v1/subjects` | Authenticated | Yes | List academic subjects | `BACKEND_READY` | Pending Academics View |
-| `GET` | `/api/v1/subjects/:id` | Authenticated | Yes | Subject details | `BACKEND_READY` | Pending Subject Details |
-| `POST` | `/api/v1/subjects` | `ADMIN` | Yes | Create academic subject | `BACKEND_READY` | Pending Subject Form |
-| `PUT` | `/api/v1/subjects/:id` | `ADMIN` | Yes | Update academic subject | `BACKEND_READY` | Pending Subject Form |
-| `DELETE` | `/api/v1/subjects/:id` | `ADMIN` | Yes | Deactivate subject | `BACKEND_READY` | Pending Deactivate Action |
-| `GET` | `/api/v1/academics/subjects` | Authenticated | Yes | Subjects catalog (alias) | `BACKEND_READY` | Pending Academics View |
-| `GET` | `/api/v1/course-offerings` | Authenticated | Yes | List course offerings | `BACKEND_READY` | Pending Course Offerings |
-| `GET` | `/api/v1/course-offerings/:id` | Authenticated | Yes | Course offering details | `BACKEND_READY` | Pending Offering Details |
-| `POST` | `/api/v1/course-offerings` | `ADMIN` | Yes | Create course offering | `BACKEND_READY` | Pending Offering Form |
-| `PUT` | `/api/v1/course-offerings/:id` | `ADMIN` | Yes | Update course offering | `BACKEND_READY` | Pending Offering Form |
-| `DELETE` | `/api/v1/course-offerings/:id` | `ADMIN` | Yes | Delete course offering | `BACKEND_READY` | Pending Delete Action |
-| `GET` | `/api/v1/academics/courses` | Authenticated | Yes | Course offerings catalog (alias) | `BACKEND_READY` | Pending Course Offerings |
-| `GET` | `/api/v1/sections` | Authenticated | Yes | List course sections | `BACKEND_READY` | Pending Section View |
-| `GET` | `/api/v1/sections/:id` | Authenticated | Yes | Section details | `BACKEND_READY` | Pending Section Details |
-| `POST` | `/api/v1/sections` | `ADMIN` | Yes | Create course section | `BACKEND_READY` | Pending Section Form |
-| `PUT` | `/api/v1/sections/:id` | `ADMIN` | Yes | Update course section | `BACKEND_READY` | Pending Section Form |
-| `DELETE` | `/api/v1/sections/:id` | `ADMIN` | Yes | Delete course section | `BACKEND_READY` | Pending Delete Action |
-| `GET` | `/api/v1/timetable` | Authenticated | Yes | List timetable slots | `BACKEND_READY` | Pending Timetable View |
-| `GET` | `/api/v1/timetable/:id` | Authenticated | Yes | Timetable slot details | `BACKEND_READY` | Pending Timetable Details |
-| `POST` | `/api/v1/timetable` | `ADMIN` | Yes | Create timetable slot with conflict check | `BACKEND_READY` | Pending Timetable Form |
-| `PUT` | `/api/v1/timetable/:id` | `ADMIN` | Yes | Update timetable slot | `BACKEND_READY` | Pending Timetable Form |
-| `DELETE` | `/api/v1/timetable/:id` | `ADMIN` | Yes | Deactivate timetable slot | `BACKEND_READY` | Pending Deactivate Action |
-| `GET` | `/api/v1/faculty/me` | `FACULTY` | Yes | Authenticated faculty profile | `BACKEND_READY` | Pending Faculty Portal |
-| `GET` | `/api/v1/faculty/dashboard` | `FACULTY` | Yes | Faculty dashboard metrics & schedule | `BACKEND_READY` | Pending Faculty Dashboard |
-| `GET` | `/api/v1/faculty/timetable` | `FACULTY` | Yes | Faculty weekly assigned timetable | `BACKEND_READY` | Pending Faculty Timetable |
-| `GET` | `/api/v1/faculty/courses` | `FACULTY` | Yes | Faculty courses & offerings | `BACKEND_READY` | Pending Faculty Courses |
-| `GET` | `/api/v1/faculty/sections` | `FACULTY` | Yes | Faculty sections & enrollment counts | `BACKEND_READY` | Pending Faculty Sections |
-| `GET` | `/api/v1/faculty/attendance/sessions` | `FACULTY` | Yes | Faculty attendance sessions list | `BACKEND_READY` | Pending Attendance View |
-| `GET` | `/api/v1/faculty/attendance/sessions/:id` | `FACULTY` | Yes | Attendance session details (ownership guarded) | `BACKEND_READY` | Pending Attendance View |
-| `POST` | `/api/v1/faculty/attendance/sessions/:id/start` | `FACULTY` | Yes | Start attendance session (SCHEDULED -> OPEN) | `BACKEND_READY` | Pending Start Button |
-| `POST` | `/api/v1/faculty/attendance/sessions/:id/finalize` | `FACULTY` | Yes | Finalize attendance session (OPEN -> CLOSED) | `BACKEND_READY` | Pending Finalize Button |
-| `GET` | `/api/v1/faculty/attendance/sessions/:sessionId/roster` | `FACULTY` | Yes | Enrolled student roster with marking status | `BACKEND_READY` | Pending Roster View |
-| `POST` | `/api/v1/faculty/attendance/sessions/:sessionId/records` | `FACULTY` | Yes | Mark manual student attendance | `BACKEND_READY` | Pending Marking Form |
-| `POST` | `/api/v1/faculty/attendance/records/:id/override` | `FACULTY` | Yes | Override attendance with audit logging | `BACKEND_READY` | Pending Override Dialog |
-| `GET` | `/api/v1/faculty/attendance/summary` | `FACULTY` | Yes | Aggregated faculty attendance metrics | `BACKEND_READY` | Pending Summary View |
+| `GET` | `/api/v1/subjects` | Authenticated | Yes | List academic subjects | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/subjects/:id` | Authenticated | Yes | Subject details | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `POST` | `/api/v1/subjects` | `ADMIN` | Yes | Create academic subject | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `PUT` | `/api/v1/subjects/:id` | `ADMIN` | Yes | Update academic subject | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `DELETE` | `/api/v1/subjects/:id` | `ADMIN` | Yes | Deactivate subject | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/academics/subjects` | Authenticated | Yes | Subjects catalog (alias) | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/course-offerings` | Authenticated | Yes | List course offerings | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/course-offerings/:id` | Authenticated | Yes | Course offering details | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `POST` | `/api/v1/course-offerings` | `ADMIN` | Yes | Create course offering | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `PUT` | `/api/v1/course-offerings/:id` | `ADMIN` | Yes | Update course offering | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `DELETE` | `/api/v1/course-offerings/:id` | `ADMIN` | Yes | Delete course offering | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/academics/courses` | Authenticated | Yes | Course offerings catalog (alias) | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/sections` | Authenticated | Yes | List course sections | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/sections/:id` | Authenticated | Yes | Section details | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `POST` | `/api/v1/sections` | `ADMIN` | Yes | Create course section | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `PUT` | `/api/v1/sections/:id` | `ADMIN` | Yes | Update course section | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `DELETE` | `/api/v1/sections/:id` | `ADMIN` | Yes | Delete course section | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/timetable` | Authenticated | Yes | List timetable slots | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/timetable/:id` | Authenticated | Yes | Timetable slot details | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `POST` | `/api/v1/timetable` | `ADMIN` | Yes | Create timetable slot with conflict check | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `PUT` | `/api/v1/timetable/:id` | `ADMIN` | Yes | Update timetable slot | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `DELETE` | `/api/v1/timetable/:id` | `ADMIN` | Yes | Deactivate timetable slot | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/faculty/me` | `FACULTY` | Yes | Authenticated faculty profile | `INTEGRATED` | `App.jsx`, `FacultyDashboardOverview.jsx` |
+| `GET` | `/api/v1/faculty/dashboard` | `FACULTY` | Yes | Faculty dashboard metrics & schedule | `INTEGRATED` | `FacultyDashboardOverview.jsx` |
+| `GET` | `/api/v1/faculty/timetable` | `FACULTY` | Yes | Faculty weekly assigned timetable | `INTEGRATED` | `FacultyTimetableView.jsx` |
+| `GET` | `/api/v1/faculty/courses` | `FACULTY` | Yes | Faculty courses & offerings | `INTEGRATED` | `FacultyTimetableView.jsx` |
+| `GET` | `/api/v1/faculty/sections` | `FACULTY` | Yes | Faculty sections & enrollment counts | `INTEGRATED` | `FacultySessionsView.jsx` |
+| `GET` | `/api/v1/faculty/attendance/sessions` | `FACULTY` | Yes | Faculty attendance sessions list | `INTEGRATED` | `FacultySessionsView.jsx` |
+| `GET` | `/api/v1/faculty/attendance/sessions/:id` | `FACULTY` | Yes | Attendance session details (ownership guarded) | `INTEGRATED` | `FacultySessionsView.jsx` |
+| `POST` | `/api/v1/faculty/attendance/sessions/:id/start` | `FACULTY` | Yes | Start attendance session (SCHEDULED -> OPEN) | `INTEGRATED` | `FacultySessionsView.jsx` |
+| `POST` | `/api/v1/faculty/attendance/sessions/:id/finalize` | `FACULTY` | Yes | Finalize attendance session (OPEN -> CLOSED) | `INTEGRATED` | `FacultySessionsView.jsx` |
+| `GET` | `/api/v1/faculty/attendance/sessions/:sessionId/roster` | `FACULTY` | Yes | Enrolled student roster with marking status | `INTEGRATED` | `FacultySessionsView.jsx` |
+| `POST` | `/api/v1/faculty/attendance/sessions/:sessionId/records` | `FACULTY` | Yes | Mark manual student attendance | `INTEGRATED` | `FacultySessionsView.jsx` |
+| `PUT` | `/api/v1/faculty/attendance/sessions/:id/records/:recordId/override` | `FACULTY` | Yes | Override attendance with audit logging | `INTEGRATED` | `FacultySessionsView.jsx` |
+| `GET` | `/api/v1/faculty/attendance/summary` | `FACULTY` | Yes | Aggregated faculty attendance metrics | `INTEGRATED` | `FacultyAttendanceLogsView.jsx` |
 | `*` | `/api/v1/library/*` | - | - | Library management | `OUT_OF_SCOPE / BACKEND_MISSING` | N/A |
 | `*` | `/api/v1/visitors/*` | - | - | Visitor management | `OUT_OF_SCOPE / BACKEND_MISSING` | N/A |
