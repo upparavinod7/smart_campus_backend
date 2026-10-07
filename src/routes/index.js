@@ -9,6 +9,7 @@ const classroomRoutes = require("./classroom.routes");
 const attendanceSessionRoutes = require("./attendanceSession.routes");
 const attendanceRoutes = require("./attendance.routes");
 const studentPortalRoutes = require("./studentPortal.routes");
+const facultyPortalRoutes = require("./facultyPortal.routes");
 const adminRoutes = require("./admin.routes");
 const subjectRoutes = require("./subject.routes");
 const courseOfferingRoutes = require("./courseOffering.routes");
@@ -70,5 +71,9 @@ router.use("/sections", sectionRoutes);
 // Timetable management
 router.use("/timetable", timetableRoutes);
 router.use("/timetable-slots", timetableRoutes);
+
+// Faculty Portal
+router.use("/faculty", facultyPortalRoutes);
+router.use("/faculty-portal", facultyPortalRoutes);
 
 module.exports = router;
