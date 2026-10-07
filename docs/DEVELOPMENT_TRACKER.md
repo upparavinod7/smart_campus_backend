@@ -3,7 +3,7 @@
 > **Authoritative Location**: `smart_campus_backend/docs/DEVELOPMENT_TRACKER.md`  
 > **Institution**: Joy University  
 > **System**: Smart Campus ERP System  
-> **Last Verified Update**: 2026-10-07T10:20:00+05:30  
+> **Last Verified Update**: 2026-10-07T11:35:00+05:30  
 
 ---
 
@@ -15,12 +15,12 @@
 | **Not Started** | 0 |
 | **In Progress** | 0 |
 | **Implemented** | 0 |
-| **Tested** | 11 |
-| **Pushed** | 9 |
-| **Pull Requests Created** | 9 (URLs generated) |
+| **Tested** | 12 |
+| **Pushed** | 10 |
+| **Pull Requests Created** | 10 (URLs generated) |
 | **Merged** | 0 |
 | **Blocked Work** | 0 |
-| **Next Recommended Feature** | `FEAT-011`: Faculty Portal Workflows |
+| **Next Recommended Feature** | `FEAT-012`: Automated Test Suite & Quality Verification |
 
 ---
 
@@ -361,27 +361,37 @@
 - **Feature ID**: `FEAT-011`
 - **Feature Name**: Faculty Portal Workflows
 - **Module**: Faculty Portal
-- **Backend Status**: `IMPLEMENTED` (Session creation, attendance marking, faculty attendance history)
+- **Backend Status**: `TESTED`
 - **Frontend Status**: `NOT_STARTED`
 - **API Endpoints**:
-  - `GET /api/v1/attendance/staf/t/:facultyId`
-  - `POST /api/v1/attendance/sessions`
-  - `POST /api/v1/attendance/sessions/:id/start`
-  - `POST /api/v1/attendance/sessions/:id/finalize`
-- **Backend Branch**: `feature/faculty-portal`
-- **Backend Commit SHA**: TBD
+  - `GET /api/v1/faculty/me`
+  - `GET /api/v1/faculty/dashboard`
+  - `GET /api/v1/faculty/timetable`
+  - `GET /api/v1/faculty/courses`
+  - `GET /api/v1/faculty/sections`
+  - `GET /api/v1/faculty/attendance/sessions`
+  - `GET /api/v1/faculty/attendance/sessions/:id`
+  - `POST /api/v1/faculty/attendance/sessions/:id/start`
+  - `POST /api/v1/faculty/attendance/sessions/:id/finalize`
+  - `GET /api/v1/faculty/attendance/sessions/:sessionId/roster`
+  - `POST /api/v1/faculty/attendance/sessions/:sessionId/records`
+  - `POST /api/v1/faculty/attendance/records/:id/override`
+  - `GET /api/v1/faculty/attendance/summary`
+- **Backend Branch**: `feature/faculty-portal-workflows`
+- **Backend Commit SHA**: `16dd4cc`
 - **Frontend Branch**: `feature/faculty-portal`
 - **Frontend Commit SHA**: TBD
-- **Backend Test Results**: Controller verified
+- **Backend Test Results**: 50/50 tests passed (`node --test src/test/api.test.js`)
 - **Frontend Build/Test Results**: Pending
-- **Integration Test Results**: Pending
-- **Backend Push Status**: `NOT_STARTED`
+- **Integration Test Results**: Verified faculty auth, RBAC isolation (STUDENT/VIEWER/OPERATOR 403), cross-faculty ownership enforcement, session state machine, roster inspection, manual marking, duplicate checks, override audit logging, and attendance summary
+- **Backend Push Status**: `PUSHED`
 - **Frontend Push Status**: `NOT_STARTED`
-- **Pull Request URLs**: N/A
+- **Pull Request URLs**:
+  - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/feature/faculty-portal-workflows`
 - **Merge Status**: Open
 - **Blockers**: None
-- **Next Steps**: Render faculty specific views when role is FACULTY / Staff
-- **Last Verified Update**: 2026-09-28T19:22:00+05:30
+- **Next Steps**: Awaiting user approval to merge; proceed to FEAT-012 (Automated Test Suite & Quality Verification)
+- **Last Verified Update**: 2026-10-07T11:35:00+05:30
 
 ---
 
@@ -481,5 +491,18 @@
 | `POST` | `/api/v1/timetable` | `ADMIN` | Yes | Create timetable slot with conflict check | `BACKEND_READY` | Pending Timetable Form |
 | `PUT` | `/api/v1/timetable/:id` | `ADMIN` | Yes | Update timetable slot | `BACKEND_READY` | Pending Timetable Form |
 | `DELETE` | `/api/v1/timetable/:id` | `ADMIN` | Yes | Deactivate timetable slot | `BACKEND_READY` | Pending Deactivate Action |
+| `GET` | `/api/v1/faculty/me` | `FACULTY` | Yes | Authenticated faculty profile | `BACKEND_READY` | Pending Faculty Portal |
+| `GET` | `/api/v1/faculty/dashboard` | `FACULTY` | Yes | Faculty dashboard metrics & schedule | `BACKEND_READY` | Pending Faculty Dashboard |
+| `GET` | `/api/v1/faculty/timetable` | `FACULTY` | Yes | Faculty weekly assigned timetable | `BACKEND_READY` | Pending Faculty Timetable |
+| `GET` | `/api/v1/faculty/courses` | `FACULTY` | Yes | Faculty courses & offerings | `BACKEND_READY` | Pending Faculty Courses |
+| `GET` | `/api/v1/faculty/sections` | `FACULTY` | Yes | Faculty sections & enrollment counts | `BACKEND_READY` | Pending Faculty Sections |
+| `GET` | `/api/v1/faculty/attendance/sessions` | `FACULTY` | Yes | Faculty attendance sessions list | `BACKEND_READY` | Pending Attendance View |
+| `GET` | `/api/v1/faculty/attendance/sessions/:id` | `FACULTY` | Yes | Attendance session details (ownership guarded) | `BACKEND_READY` | Pending Attendance View |
+| `POST` | `/api/v1/faculty/attendance/sessions/:id/start` | `FACULTY` | Yes | Start attendance session (SCHEDULED -> OPEN) | `BACKEND_READY` | Pending Start Button |
+| `POST` | `/api/v1/faculty/attendance/sessions/:id/finalize` | `FACULTY` | Yes | Finalize attendance session (OPEN -> CLOSED) | `BACKEND_READY` | Pending Finalize Button |
+| `GET` | `/api/v1/faculty/attendance/sessions/:sessionId/roster` | `FACULTY` | Yes | Enrolled student roster with marking status | `BACKEND_READY` | Pending Roster View |
+| `POST` | `/api/v1/faculty/attendance/sessions/:sessionId/records` | `FACULTY` | Yes | Mark manual student attendance | `BACKEND_READY` | Pending Marking Form |
+| `POST` | `/api/v1/faculty/attendance/records/:id/override` | `FACULTY` | Yes | Override attendance with audit logging | `BACKEND_READY` | Pending Override Dialog |
+| `GET` | `/api/v1/faculty/attendance/summary` | `FACULTY` | Yes | Aggregated faculty attendance metrics | `BACKEND_READY` | Pending Summary View |
 | `*` | `/api/v1/library/*` | - | - | Library management | `OUT_OF_SCOPE / BACKEND_MISSING` | N/A |
 | `*` | `/api/v1/visitors/*` | - | - | Visitor management | `OUT_OF_SCOPE / BACKEND_MISSING` | N/A |
