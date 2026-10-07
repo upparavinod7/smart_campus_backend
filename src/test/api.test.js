@@ -1284,3 +1284,725 @@ test("Database Relational Integrity: Creating attendance for non-existent sessio
 
 
 
+
+// ============================================================================
+// FEAT-010: Academic Offerings, Subjects & Timetable Overview Integration Tests
+// ============================================================================
+
+// --- Subjects Tests ---
+test("Subjects: GET /api/v1/subjects without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/subjects`);
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+});
+
+test("Subjects: GET /api/v1/subjects/:id for non-existent subject returns 404", async () => {
+  const res = await fetch(`${baseUrl}/subjects/999999`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 404);
+  assert.equal(body.success, false);
+});
+
+test("Subjects RBAC: POST /api/v1/subjects with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/subjects`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ subject_code: "SUB001", name: "Test Subject" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 403);
+  assert.equal(body.success, false);
+});
+
+test("Subjects Validation: POST /api/v1/subjects requires subject_code and name (400)", async () => {
+  const res = await fetch(`${baseUrl}/subjects`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ subject_code: "" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+});
+
+test("Subjects Validation: POST /api/v1/subjects rejects invalid department_id (400)", async () => {
+  const res = await fetch(`${baseUrl}/subjects`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      subject_code: "INVAL001",
+      name: "Invalid Dept Subject",
+      owner_department_id: 999999,
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.match(body.message, /department/i);
+});
+
+test("Subjects Validation: POST /api/v1/subjects rejects duplicate subject_code (409)", async () => {
+  const res = await fetch(`${baseUrl}/subjects`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      subject_code: "AIML101",
+      name: "Duplicate Code Attempt",
+    }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 409);
+  assert.equal(body.success, false);
+  assert.match(body.message, /already exists/i);
+});
+
+test("Subjects Full Lifecycle: Create, List/Filter, GetById, Update, Duplicate on Update, Soft Deactivate", async () => {
+  const uniqueCode = `TS_${Date.now().toString().slice(-6)}`;
+  let createdId;
+
+  try {
+    // 1. Create subject
+    const createRes = await fetch(`${baseUrl}/subjects`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        subject_code: uniqueCode,
+        name: "Lifecycle Test Subject",
+        credits: 4,
+        delivery_type: "THEORY",
+        owner_department_id: 5,
+      }),
+    });
+    const createBody = await createRes.json();
+    assert.equal(createRes.status, 201);
+    assert.equal(createBody.success, true);
+    createdId = createBody.data.subject_id;
+    assert.ok(createdId);
+    assert.equal(createBody.data.subject_code, uniqueCode);
+    assert.equal(createBody.data.is_active, 1);
+    assert.ok(createBody.data.department_name);
+
+    // 2. List subjects with search filter
+    const listRes = await fetch(`${baseUrl}/subjects?search=${uniqueCode}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const listBody = await listRes.json();
+    assert.equal(listRes.status, 200);
+    assert.ok(listBody.data.some((s) => s.subject_id === createdId));
+
+    // 3. Get subject by ID
+    const getRes = await fetch(`${baseUrl}/subjects/${createdId}`, {
+      headers: { Authorization: `Bearer ${studentToken}` },
+    });
+    const getBody = await getRes.json();
+    assert.equal(getRes.status, 200);
+    assert.equal(getBody.data.subject_id, createdId);
+    assert.equal(getBody.data.name, "Lifecycle Test Subject");
+
+    // 4. Update subject
+    const updateRes = await fetch(`${baseUrl}/subjects/${createdId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: "Updated Test Subject Name",
+        credits: 3.5,
+      }),
+    });
+    const updateBody = await updateRes.json();
+    assert.equal(updateRes.status, 200);
+    assert.equal(updateBody.data.name, "Updated Test Subject Name");
+    assert.equal(updateBody.data.credits, "3.5");
+
+    // 5. Update subject with existing code returns 409
+    const dupRes = await fetch(`${baseUrl}/subjects/${createdId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ subject_code: "AIML101" }),
+    });
+    assert.equal(dupRes.status, 409);
+
+    // 6. Soft deactivate
+    const deleteRes = await fetch(`${baseUrl}/subjects/${createdId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const deleteBody = await deleteRes.json();
+    assert.equal(deleteRes.status, 200);
+    assert.equal(deleteBody.data.is_active, 0);
+
+    // 7. Repeat soft deactivate returns 400
+    const repeatDeleteRes = await fetch(`${baseUrl}/subjects/${createdId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(repeatDeleteRes.status, 400);
+  } finally {
+    if (createdId) {
+      await pool.query("DELETE FROM subjects WHERE subject_id = ?", [createdId]);
+    }
+  }
+});
+
+// --- Course Offerings Tests ---
+test("Course Offerings: GET /api/v1/course-offerings without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/course-offerings`);
+  assert.equal(res.status, 401);
+});
+
+test("Course Offerings RBAC: POST /api/v1/course-offerings with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/course-offerings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ term_id: 7, subject_id: 1 }),
+  });
+  assert.equal(res.status, 403);
+});
+
+test("Course Offerings Validation: POST requires term_id and subject_id (400)", async () => {
+  const res = await fetch(`${baseUrl}/course-offerings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ term_id: 7 }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test("Course Offerings Validation: POST rejects invalid term_id or subject_id (400)", async () => {
+  const res = await fetch(`${baseUrl}/course-offerings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ term_id: 999999, subject_id: 1 }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test("Course Offerings Not Found: GET /api/v1/course-offerings/:id returns 404", async () => {
+  const res = await fetch(`${baseUrl}/course-offerings/999999`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(res.status, 404);
+});
+
+test("Course Offerings Full Lifecycle: Create, Duplicate Conflict 409, List, GetById, Update, Delete", async () => {
+  let createdOfferingId;
+
+  try {
+    // 1. Create offering for subject 5 (AIML105) in term 7
+    const createRes = await fetch(`${baseUrl}/course-offerings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        term_id: 7,
+        subject_id: 5,
+        coordinator_faculty_id: 1,
+      }),
+    });
+    const createBody = await createRes.json();
+    assert.equal(createRes.status, 201);
+    assert.equal(createBody.success, true);
+    createdOfferingId = createBody.data.offering_id;
+    assert.ok(createdOfferingId);
+    assert.equal(createBody.data.subject_id, 5);
+    assert.ok(createBody.data.subject_code);
+    assert.ok(createBody.data.coordinator_faculty_name);
+
+    // 2. Duplicate offering for same term and subject returns 409
+    const dupRes = await fetch(`${baseUrl}/course-offerings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        term_id: 7,
+        subject_id: 5,
+      }),
+    });
+    assert.equal(dupRes.status, 409);
+
+    // 3. List offerings with filter
+    const listRes = await fetch(`${baseUrl}/course-offerings?subject_id=5`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const listBody = await listRes.json();
+    assert.equal(listRes.status, 200);
+    assert.ok(listBody.data.some((o) => o.offering_id === createdOfferingId));
+
+    // 4. Get by ID
+    const getRes = await fetch(`${baseUrl}/course-offerings/${createdOfferingId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const getBody = await getRes.json();
+    assert.equal(getRes.status, 200);
+    assert.equal(getBody.data.offering_id, createdOfferingId);
+
+    // 5. Update coordinator faculty
+    const updateRes = await fetch(`${baseUrl}/course-offerings/${createdOfferingId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ coordinator_faculty_id: 2 }),
+    });
+    const updateBody = await updateRes.json();
+    assert.equal(updateRes.status, 200);
+    assert.equal(updateBody.data.coordinator_faculty_id, 2);
+
+    // 6. Delete offering
+    const deleteRes = await fetch(`${baseUrl}/course-offerings/${createdOfferingId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(deleteRes.status, 200);
+    createdOfferingId = null;
+  } finally {
+    if (createdOfferingId) {
+      await pool.query("DELETE FROM course_offerings WHERE offering_id = ?", [createdOfferingId]);
+    }
+  }
+});
+
+// --- Section Tests ---
+test("Sections: GET /api/v1/sections without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/sections`);
+  assert.equal(res.status, 401);
+});
+
+test("Sections RBAC: POST /api/v1/sections with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/sections`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({ offering_id: 1, section_code: "B" }),
+  });
+  assert.equal(res.status, 403);
+});
+
+test("Sections Validation: POST /api/v1/sections requires offering_id and section_code (400)", async () => {
+  const res = await fetch(`${baseUrl}/sections`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ offering_id: 1 }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test("Sections Validation: POST /api/v1/sections rejects invalid offering_id (400)", async () => {
+  const res = await fetch(`${baseUrl}/sections`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ offering_id: 999999, section_code: "B" }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test("Sections Not Found: GET /api/v1/sections/:id returns 404", async () => {
+  const res = await fetch(`${baseUrl}/sections/999999`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(res.status, 404);
+});
+
+test("Sections Full Lifecycle: Create, Duplicate Conflict 409, List, GetById, Update, Delete", async () => {
+  const uniqueSecCode = `Z${Date.now().toString().slice(-4)}`;
+  let createdSecId;
+
+  try {
+    // 1. Create section
+    const createRes = await fetch(`${baseUrl}/sections`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        offering_id: 1,
+        section_code: uniqueSecCode,
+        max_strength: 55,
+      }),
+    });
+    const createBody = await createRes.json();
+    assert.equal(createRes.status, 201);
+    assert.equal(createBody.success, true);
+    createdSecId = createBody.data.section_id;
+    assert.ok(createdSecId);
+    assert.equal(createBody.data.section_code, uniqueSecCode);
+    assert.ok(createBody.data.subject_code);
+
+    // 2. Duplicate section for same offering returns 409
+    const dupRes = await fetch(`${baseUrl}/sections`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        offering_id: 1,
+        section_code: uniqueSecCode,
+      }),
+    });
+    assert.equal(dupRes.status, 409);
+
+    // 3. List sections
+    const listRes = await fetch(`${baseUrl}/sections?offering_id=1`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const listBody = await listRes.json();
+    assert.equal(listRes.status, 200);
+    assert.ok(listBody.data.some((s) => s.section_id === createdSecId));
+
+    // 4. Get by ID
+    const getRes = await fetch(`${baseUrl}/sections/${createdSecId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const getBody = await getRes.json();
+    assert.equal(getRes.status, 200);
+    assert.equal(getBody.data.section_id, createdSecId);
+
+    // 5. Update section max_strength
+    const updateRes = await fetch(`${baseUrl}/sections/${createdSecId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ max_strength: 65 }),
+    });
+    const updateBody = await updateRes.json();
+    assert.equal(updateRes.status, 200);
+    assert.equal(updateBody.data.max_strength, 65);
+
+    // 6. Delete section
+    const deleteRes = await fetch(`${baseUrl}/sections/${createdSecId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(deleteRes.status, 200);
+    createdSecId = null;
+  } finally {
+    if (createdSecId) {
+      await pool.query("DELETE FROM sections WHERE section_id = ?", [createdSecId]);
+    }
+  }
+});
+
+// --- Timetable & Conflict Detection Tests ---
+test("Timetable: GET /api/v1/timetable without token returns 401", async () => {
+  const res = await fetch(`${baseUrl}/timetable`);
+  assert.equal(res.status, 401);
+});
+
+test("Timetable RBAC: POST /api/v1/timetable with STUDENT role returns 403", async () => {
+  const res = await fetch(`${baseUrl}/timetable`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${studentToken}`,
+    },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 403);
+});
+
+test("Timetable Validation: POST requires core fields (400)", async () => {
+  const res = await fetch(`${baseUrl}/timetable`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({ section_id: 1, faculty_id: 1 }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test("Timetable Validation: POST rejects invalid day_of_week and end_time <= start_time (400)", async () => {
+  // Invalid day of week (8)
+  const res1 = await fetch(`${baseUrl}/timetable`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      section_id: 1,
+      faculty_id: 1,
+      classroom_id: 1,
+      day_of_week: 8,
+      start_time: "09:00:00",
+      end_time: "10:00:00",
+      effective_from: "2026-06-01",
+    }),
+  });
+  assert.equal(res1.status, 400);
+
+  // end_time <= start_time
+  const res2 = await fetch(`${baseUrl}/timetable`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      section_id: 1,
+      faculty_id: 1,
+      classroom_id: 1,
+      day_of_week: 1,
+      start_time: "11:00:00",
+      end_time: "10:00:00",
+      effective_from: "2026-06-01",
+    }),
+  });
+  assert.equal(res2.status, 400);
+  assert.match((await res2.json()).message, /greater than/i);
+});
+
+test("Timetable Validation: POST rejects invalid foreign keys (400)", async () => {
+  const res = await fetch(`${baseUrl}/timetable`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      section_id: 999999,
+      faculty_id: 1,
+      classroom_id: 1,
+      day_of_week: 1,
+      start_time: "09:00:00",
+      end_time: "10:00:00",
+      effective_from: "2026-06-01",
+    }),
+  });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).message, /section/i);
+});
+
+test("Timetable Not Found: GET /api/v1/timetable/:id returns 404", async () => {
+  const res = await fetch(`${baseUrl}/timetable/999999`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(res.status, 404);
+});
+
+test("Timetable Conflict Detection: Faculty, Classroom, Section conflicts (409) and Boundary Abutting Slots (201)", async () => {
+  let slotAId;
+  let slotBId;
+
+  try {
+    // 1. Create Base Slot A on day 5 (Friday) from 14:00 to 15:30
+    const slotARes = await fetch(`${baseUrl}/timetable`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        section_id: 1,
+        faculty_id: 1,
+        classroom_id: 1,
+        day_of_week: 5,
+        start_time: "14:00:00",
+        end_time: "15:30:00",
+        effective_from: "2027-01-01",
+      }),
+    });
+    const slotABody = await slotARes.json();
+    assert.equal(slotARes.status, 201);
+    assert.equal(slotABody.success, true);
+    slotAId = slotABody.data.slot_id;
+    assert.ok(slotAId);
+
+    // 2. Faculty Conflict: faculty 1 booked on day 5 overlapping (14:30 - 16:00) with different room & section
+    const facConflictRes = await fetch(`${baseUrl}/timetable`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        section_id: 2,
+        faculty_id: 1,
+        classroom_id: 2,
+        day_of_week: 5,
+        start_time: "14:30:00",
+        end_time: "16:00:00",
+        effective_from: "2027-01-01",
+      }),
+    });
+    const facConflictBody = await facConflictRes.json();
+    assert.equal(facConflictRes.status, 409);
+    assert.equal(facConflictBody.code, "FACULTY_CONFLICT");
+    assert.match(facConflictBody.message, /Faculty schedule conflict/i);
+
+    // 3. Classroom Conflict: room 1 booked on day 5 overlapping (15:00 - 16:00) with different faculty & section
+    const roomConflictRes = await fetch(`${baseUrl}/timetable`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        section_id: 2,
+        faculty_id: 2,
+        classroom_id: 1,
+        day_of_week: 5,
+        start_time: "15:00:00",
+        end_time: "16:00:00",
+        effective_from: "2027-01-01",
+      }),
+    });
+    const roomConflictBody = await roomConflictRes.json();
+    assert.equal(roomConflictRes.status, 409);
+    assert.equal(roomConflictBody.code, "CLASSROOM_CONFLICT");
+    assert.match(roomConflictBody.message, /Classroom schedule conflict/i);
+
+    // 4. Section Conflict: section 1 booked on day 5 overlapping (13:30 - 14:30) with different faculty & room
+    const secConflictRes = await fetch(`${baseUrl}/timetable`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        section_id: 1,
+        faculty_id: 2,
+        classroom_id: 2,
+        day_of_week: 5,
+        start_time: "13:30:00",
+        end_time: "14:30:00",
+        effective_from: "2027-01-01",
+      }),
+    });
+    const secConflictBody = await secConflictRes.json();
+    assert.equal(secConflictRes.status, 409);
+    assert.equal(secConflictBody.code, "SECTION_CONFLICT");
+    assert.match(secConflictBody.message, /Section schedule conflict/i);
+
+    // 5. Boundary Condition: Abutting slot (15:30:00 - 16:30:00) starts exactly when Slot A ends (15:30:00)
+    // Same faculty, room, and section - should NOT conflict!
+    const abuttingRes = await fetch(`${baseUrl}/timetable`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        section_id: 1,
+        faculty_id: 1,
+        classroom_id: 1,
+        day_of_week: 5,
+        start_time: "15:30:00",
+        end_time: "16:30:00",
+        effective_from: "2027-01-01",
+      }),
+    });
+    const abuttingBody = await abuttingRes.json();
+    assert.equal(abuttingRes.status, 201);
+    slotBId = abuttingBody.data.slot_id;
+    assert.ok(slotBId);
+
+    // 6. Update Slot A excluding itself does NOT flag self-conflict
+    const updateRes = await fetch(`${baseUrl}/timetable/${slotAId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        start_time: "14:00:00",
+        end_time: "15:15:00",
+      }),
+    });
+    assert.equal(updateRes.status, 200);
+
+    // 7. Soft deactivation sets is_active = 0
+    const deactRes = await fetch(`${baseUrl}/timetable/${slotAId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const deactBody = await deactRes.json();
+    assert.equal(deactRes.status, 200);
+    assert.equal(deactBody.data.is_active, 0);
+
+    // 8. Repeat deactivation returns 400
+    const repeatDeact = await fetch(`${baseUrl}/timetable/${slotAId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(repeatDeact.status, 400);
+  } finally {
+    if (slotAId) {
+      await pool.query("DELETE FROM timetable_slots WHERE slot_id = ?", [slotAId]);
+    }
+    if (slotBId) {
+      await pool.query("DELETE FROM timetable_slots WHERE slot_id = ?", [slotBId]);
+    }
+  }
+});
+
+test("Academics Aliases: GET /api/v1/academics/subjects and /api/v1/academics/courses return 200", async () => {
+  const subjRes = await fetch(`${baseUrl}/academics/subjects`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const subjBody = await subjRes.json();
+  assert.equal(subjRes.status, 200);
+  assert.equal(subjBody.success, true);
+  assert.ok(Array.isArray(subjBody.data));
+
+  const courseRes = await fetch(`${baseUrl}/academics/courses`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const courseBody = await courseRes.json();
+  assert.equal(courseRes.status, 200);
+  assert.equal(courseBody.success, true);
+  assert.ok(Array.isArray(courseBody.data));
+});
+
+
+
