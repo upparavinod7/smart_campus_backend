@@ -9,6 +9,7 @@ const classroomRoutes = require("./classroom.routes");
 const attendanceSessionRoutes = require("./attendanceSession.routes");
 const attendanceRoutes = require("./attendance.routes");
 const studentPortalRoutes = require("./studentPortal.routes");
+const facultyPortalRoutes = require("./facultyPortal.routes");
 const adminRoutes = require("./admin.routes");
 
 const router = express.Router();
@@ -50,5 +51,9 @@ router.use("/attendance", attendanceRoutes);
 
 // Student Portal
 router.use("/student", studentPortalRoutes);
+
+// Faculty Portal
+router.use("/faculty", facultyPortalRoutes);
+router.use("/faculty-portal", facultyPortalRoutes);
 
 module.exports = router;
