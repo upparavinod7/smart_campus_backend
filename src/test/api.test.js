@@ -1802,6 +1802,49 @@ test("Timetable Validation: POST rejects invalid day_of_week and end_time <= sta
   assert.match((await res2.json()).message, /greater than/i);
 });
 
+test("Timetable Validation: POST validates effective_from and effective_to dates (400)", async () => {
+  // Invalid date format for effective_from
+  const res1 = await fetch(`${baseUrl}/timetable`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      section_id: 1,
+      faculty_id: 1,
+      classroom_id: 1,
+      day_of_week: 1,
+      start_time: "09:00:00",
+      end_time: "10:00:00",
+      effective_from: "invalid-date",
+    }),
+  });
+  assert.equal(res1.status, 400);
+  assert.match((await res1.json()).message, /effective_from/i);
+
+  // effective_to < effective_from
+  const res2 = await fetch(`${baseUrl}/timetable`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      section_id: 1,
+      faculty_id: 1,
+      classroom_id: 1,
+      day_of_week: 1,
+      start_time: "09:00:00",
+      end_time: "10:00:00",
+      effective_from: "2026-06-01",
+      effective_to: "2026-05-01",
+    }),
+  });
+  assert.equal(res2.status, 400);
+  assert.match((await res2.json()).message, /effective_to must be on or after/i);
+});
+
 test("Timetable Validation: POST rejects invalid foreign keys (400)", async () => {
   const res = await fetch(`${baseUrl}/timetable`, {
     method: "POST",

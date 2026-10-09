@@ -452,8 +452,29 @@ const createTimetableSlot = async (req, res) => {
       });
     }
 
+    const normEffFrom = effective_from ? String(effective_from).trim() : null;
+    const normEffTo =
+      effective_to && String(effective_to).trim() !== ""
+        ? String(effective_to).trim()
+        : null;
+
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!normEffFrom || !dateRegex.test(normEffFrom)) {
+      return res.status(400).json({
+        success: false,
+        message: "effective_from must be a valid date in YYYY-MM-DD format",
+      });
+    }
+
+    if (normEffTo && !dateRegex.test(normEffTo)) {
+      return res.status(400).json({
+        success: false,
+        message: "effective_to must be a valid date in YYYY-MM-DD format",
+      });
+    }
+
     // Validate effective_to >= effective_from if provided
-    if (effective_to && effective_to < effective_from) {
+    if (normEffTo && normEffTo < normEffFrom) {
       return res.status(400).json({
         success: false,
         message: "effective_to must be on or after effective_from",
@@ -514,8 +535,8 @@ const createTimetableSlot = async (req, res) => {
       day_of_week: dowNum,
       start_time: normStartTime,
       end_time: normEndTime,
-      effective_from,
-      effective_to,
+      effective_from: normEffFrom,
+      effective_to: normEffTo,
     });
 
     if (conflictResult.conflict) {
@@ -548,8 +569,8 @@ const createTimetableSlot = async (req, res) => {
         dowNum,
         normStartTime,
         normEndTime,
-        effective_from,
-        effective_to,
+        normEffFrom,
+        normEffTo,
         is_active ? 1 : 0,
       ],
     );
@@ -763,11 +784,28 @@ const updateTimetableSlot = async (req, res) => {
     }
 
     if (effective_from !== undefined) {
-      newEffFrom = effective_from;
+      const trimmedEffFrom = String(effective_from).trim();
+      if (!dateRegex.test(trimmedEffFrom)) {
+        return res.status(400).json({
+          success: false,
+          message: "effective_from must be a valid date in YYYY-MM-DD format",
+        });
+      }
+      newEffFrom = trimmedEffFrom;
     }
 
     if (effective_to !== undefined) {
-      newEffTo = effective_to;
+      const trimmedEffTo =
+        effective_to && String(effective_to).trim() !== ""
+          ? String(effective_to).trim()
+          : null;
+      if (trimmedEffTo && !dateRegex.test(trimmedEffTo)) {
+        return res.status(400).json({
+          success: false,
+          message: "effective_to must be a valid date in YYYY-MM-DD format",
+        });
+      }
+      newEffTo = trimmedEffTo;
     }
 
     if (newEffTo && newEffTo < newEffFrom) {
