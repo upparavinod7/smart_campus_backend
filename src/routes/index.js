@@ -86,13 +86,24 @@ router.use("/academics/courses", courseOfferingRoutes);
 
 // Section management
 router.use("/sections", sectionRoutes);
+router.use("/academics/sections", sectionRoutes);
 
 // Timetable management
 router.use("/timetable", timetableRoutes);
 router.use("/timetable-slots", timetableRoutes);
+router.use("/timetable_slots", timetableRoutes);
+router.use("/academics/timetable", timetableRoutes);
 
 // Faculty Portal
 router.use("/faculty", facultyPortalRoutes);
 router.use("/faculty-portal", facultyPortalRoutes);
+
+// Fallback for unmatched /api/v1 routes - ensures API returns JSON, never HTML
+router.use((req, res) => {
+  return res.status(404).json({
+    success: false,
+    message: `Cannot ${req.method} ${req.originalUrl}`,
+  });
+});
 
 module.exports = router;

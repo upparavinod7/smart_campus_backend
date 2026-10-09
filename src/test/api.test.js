@@ -3030,6 +3030,73 @@ test("Hierarchical Academics: Section Creation with Batch, Hierarchy Retrieval, 
   assert.equal(cleanupRes.status, 200);
 });
 
+test("FEAT-015 Release Verification: Academic DELETE RBAC, 404 JSON Fallback, and Route Aliases", async () => {
+  // 1. DELETE /timetable/:id RBAC & Not Found
+  const noTokenRes = await fetch(`${baseUrl}/timetable/999999`, { method: "DELETE" });
+  assert.equal(noTokenRes.status, 401);
+
+  const studentRes = await fetch(`${baseUrl}/timetable/999999`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  assert.equal(studentRes.status, 403);
+
+  const notFoundTimetable = await fetch(`${baseUrl}/timetable/999999`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(notFoundTimetable.status, 404);
+  const notFoundTTBody = await notFoundTimetable.json();
+  assert.equal(notFoundTTBody.success, false);
+  assert.equal(notFoundTTBody.message, "Timetable slot not found");
+
+  // 2. DELETE /course-offerings/:id & /subjects/:id Not Found
+  const notFoundOffering = await fetch(`${baseUrl}/course-offerings/999999`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(notFoundOffering.status, 404);
+  const notFoundOffBody = await notFoundOffering.json();
+  assert.equal(notFoundOffBody.success, false);
+
+  const notFoundSubject = await fetch(`${baseUrl}/subjects/999999`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(notFoundSubject.status, 404);
+  const notFoundSubjBody = await notFoundSubject.json();
+  assert.equal(notFoundSubjBody.success, false);
+
+  // 3. Fallback 404 JSON Response: Never returns HTML
+  const unhandledRes = await fetch(`${baseUrl}/non-existent-endpoint-test-404`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(unhandledRes.status, 404);
+  const unhandledContentType = unhandledRes.headers.get("content-type");
+  assert.ok(unhandledContentType.includes("application/json"), "404 must return JSON, not HTML");
+  const unhandledBody = await unhandledRes.json();
+  assert.equal(unhandledBody.success, false);
+  assert.ok(unhandledBody.message.includes("Cannot DELETE"));
+
+  // 4. Aliases Verification
+  const ttAlias1 = await fetch(`${baseUrl}/academics/timetable`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(ttAlias1.status, 200);
+
+  const ttAlias2 = await fetch(`${baseUrl}/timetable_slots`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(ttAlias2.status, 200);
+
+  const secAlias = await fetch(`${baseUrl}/academics/sections`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(secAlias.status, 200);
+});
+
+
 
 
 
