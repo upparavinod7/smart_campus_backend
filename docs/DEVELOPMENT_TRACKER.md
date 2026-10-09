@@ -3,7 +3,7 @@
 > **Authoritative Location**: `smart_campus_backend/docs/DEVELOPMENT_TRACKER.md`  
 > **Institution**: Joy University  
 > **System**: Smart Campus ERP System  
-> **Last Verified Update**: 2026-10-07T15:00:00+05:30  
+> **Last Verified Update**: 2026-10-09T10:15:00+05:30  
 
 ---
 
@@ -11,14 +11,15 @@
 
 | Metric | Count |
 | :--- | :--- |
-| **Total Identified Features** | 12 |
-| **Backend Feature Implementation** | 12 / 12 Completed |
-| **Backend Integration Status** | Complete (`feature/backend-integration` @ `32cf27f`) |
-| **Backend Regression Test Suite** | 94 / 94 Passing (0 failed, 0 skipped, line coverage 76.29%, functions 90.26%) |
-| **Frontend API Integration Status** | Complete (`feature/frontend-integration` @ `12d0e22`) |
-| **Frontend Build & Lint Quality** | 0 lint errors, production Vite build passed |
-| **Cross-Role E2E Persona QA** | 100% Verified (Admin, Faculty, Student authentic workflows & security barriers) |
-| **Next Recommended Milestone** | RELEASE TO MAIN (Consolidate `feature/backend-integration` into backend `main` & `feature/frontend-integration` into frontend `main`, tag `v1.0.0-mvp`) |
+| **Total Identified Features** | 13 |
+| **Backend Feature Implementation** | 13 / 13 Completed |
+| **Backend Regression Test Suite** | 99 / 99 Passing (0 failed, 0 skipped, line coverage 77.17%, functions 91.24%) |
+| **Academic Hierarchy Implementation** | Complete (School ➔ Department ➔ Program ➔ Batch ➔ Section ➔ Timetable ➔ Class Session ➔ Attendance Records) |
+| **Backend Integration Branch** | `feature/hierarchical-timetable-attendance` @ `291610c` (Pushed to origin) |
+| **Frontend Integration Branch** | `feature/hierarchical-timetable-attendance` @ `70a4bd6` (Pushed to origin) |
+| **Frontend Build & Lint Quality** | 0 lint errors, production Vite build passed (292ms) |
+| **Cross-Role E2E Persona QA** | 100% Verified (Admin, Faculty, Student authentic workflows, 5-tier filtering & security barriers) |
+| **Next Recommended Milestone** | RELEASE TO MAIN (Consolidate `feature/hierarchical-timetable-attendance` into main for both backend and frontend) |
 
 ---
 
@@ -471,6 +472,64 @@
 
 ---
 
+### `FEAT-013`: Hierarchical Academic Structure & Timetable Integration
+- **Feature ID**: `FEAT-013`
+- **Feature Name**: Hierarchical Academic Structure & Timetable Integration
+- **Module**: Academics, Curriculum & Timetable Architecture
+- **Hierarchy Model**:
+  ```text
+  School ➔ Department ➔ Program ➔ Batch ➔ Section ➔ Timetable ➔ Class Session ➔ Attendance Records
+  ```
+- **Backend Status**: `TESTED & PUSHED`
+- **Frontend Status**: `TESTED & PUSHED`
+- **API Endpoints**:
+  - `GET /api/v1/schools` (list schools with department counts, search filter)
+  - `GET /api/v1/schools/:id` (school details with departments)
+  - `POST /api/v1/schools` (create school, ADMIN only, code/name duplicate guarded)
+  - `PUT /api/v1/schools/:id` (update school, ADMIN only)
+  - `DELETE /api/v1/schools/:id` (soft deactivate school, ADMIN only)
+  - `GET /api/v1/departments?school_id=:id` (departments filtered by school, joined with school metadata)
+  - `GET /api/v1/programs` / `GET /api/v1/programmes` (list programs with school, department, degree metadata)
+  - `GET /api/v1/programs/:id` (program details with batches array)
+  - `POST /api/v1/programs` (create program, ADMIN only, school/degree/dept validation, duplicate identity 409)
+  - `PUT /api/v1/programs/:id` (update program, ADMIN only)
+  - `DELETE /api/v1/programs/:id` (soft deactivate program, ADMIN only)
+  - `GET /api/v1/batches` (list batches with program, academic year, section/student counts)
+  - `GET /api/v1/batches/:id` (batch details with sections list)
+  - `POST /api/v1/batches` (create batch, ADMIN only, duplicate programme + year 409)
+  - `PUT /api/v1/batches/:id` (update batch, ADMIN only)
+  - `DELETE /api/v1/batches/:id` (delete batch with student and section dependency safeguards)
+  - `GET /api/v1/degrees` (list academic degrees)
+  - `GET /api/v1/sections?batch_id=:id` (sections joined with batch, program, department, and school)
+  - `POST /api/v1/sections` (accepts batch_id, foreign key verified)
+  - `GET /api/v1/timetable` (timetable slots joined with batch, program, department, and school, filtered by 5 tiers)
+- **Database Schema Enhancements**:
+  - Migration `database/mysql/002_add_batch_id_to_sections.sql`: Added `batch_id INT UNSIGNED NULL` to `sections` table with foreign key `fk_sec_batch` referencing `batches(batch_id) ON DELETE RESTRICT` and index `idx_sections_batch_id`. Seed sections backfilled to batch 4 (`2026-30`).
+- **Backend Branch**: `feature/hierarchical-timetable-attendance`
+- **Backend Commit SHA**: `291610c`
+- **Frontend Branch**: `feature/hierarchical-timetable-attendance`
+- **Frontend Commit SHA**: `70a4bd6`
+- **Backend Test Results**: 99/99 passing tests (`npm test`, 0 failed, 0 skipped, duration ~2.9s, line coverage 77.17%, function coverage 91.24%)
+- **Frontend Build/Test Results**: ESLint 0 errors / 0 warnings (`npm run lint`), Vite production build succeeded in 292ms (`npm run build`)
+- **Integration Test Results**:
+  - Full CRUD and RBAC verification on Schools, Programs, Batches, and hierarchical Sections.
+  - Verification of department-school foreign key enforcement and rejection of cross-school department mismatches (400).
+  - Verification of batch dependency protection preventing deletion of batches with active students or sections (400).
+  - Verification of 5-tier filtering on timetable slots (`school_id`, `department_id`, `programme_id`, `batch_id`, `section_id`).
+  - Strict preservation of timetable conflict engine: faculty, classroom, and section overlap checks (409) and boundary abutting slots (201).
+  - Frontend Academics Management UI (`AcademicsManagementView.jsx`) equipped with 5-tier cascading dropdown filter, Academic Structure sub-management (Schools, Programs, Batches), batch-aware Section allocation, and program/batch tags in timetable cards.
+  - Faculty Schedule (`FacultyTimetableView.jsx`) updated to display Program, Batch, and Section badges on assigned lectures.
+- **Backend Push Status**: `PUSHED`
+- **Frontend Push Status**: `PUSHED`
+- **Pull Request URLs**:
+  - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/feature/hierarchical-timetable-attendance`
+  - Frontend: `https://github.com/sahayaglancy35-blip/smart_campus_frontend/pull/new/feature/hierarchical-timetable-attendance`
+- **Merge Status**: Open (Ready for user review and merge)
+- **Blockers**: None
+- **Last Verified Update**: 2026-10-09T10:15:00+05:30
+
+---
+
 ## 3. Authoritative API Inventory & Status
 
 | Method | Endpoint | Allowed Roles | Auth Required | Purpose | Status | Frontend Component |
@@ -495,11 +554,27 @@
 | `POST` | `/api/v1/staff/t` | `ADMIN` | Yes | Create faculty profile | `INTEGRATED` | `FacultyManagementView.jsx` (Create Modal) |
 | `PUT` | `/api/v1/staff/t/:id` | `ADMIN` | Yes | Update faculty profile | `INTEGRATED` | `FacultyManagementView.jsx` (Edit Modal) |
 | `DELETE` | `/api/v1/staff/t/:id` | `ADMIN` | Yes | Deactivate faculty profile | `INTEGRATED` | `FacultyManagementView.jsx` (Deactivate Modal) |
-| `GET` | `/api/v1/departments` | Authenticated | Yes | List academic departments | `INTEGRATED` | `DepartmentManagementView.jsx` |
-| `GET` | `/api/v1/departments/:id` | Authenticated | Yes | Department details | `INTEGRATED` | `DepartmentManagementView.jsx` |
+| `GET` | `/api/v1/schools` | Authenticated | Yes | List constituent schools with dept counts | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/schools/:id` | Authenticated | Yes | School details with departments list | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `POST` | `/api/v1/schools` | `ADMIN` | Yes | Create constituent school | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `PUT` | `/api/v1/schools/:id` | `ADMIN` | Yes | Update constituent school | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `DELETE` | `/api/v1/schools/:id` | `ADMIN` | Yes | Deactivate constituent school | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/departments` | Authenticated | Yes | List academic departments (filterable by school_id) | `INTEGRATED` | `DepartmentManagementView.jsx`, `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/departments/:id` | Authenticated | Yes | Department details with school metadata | `INTEGRATED` | `DepartmentManagementView.jsx` |
 | `POST` | `/api/v1/departments` | `ADMIN` | Yes | Create academic department | `INTEGRATED` | `DepartmentManagementView.jsx` |
 | `PUT` | `/api/v1/departments/:id` | `ADMIN` | Yes | Update academic department | `INTEGRATED` | `DepartmentManagementView.jsx` |
 | `DELETE` | `/api/v1/departments/:id` | `ADMIN` | Yes | Delete department | `INTEGRATED` | `DepartmentManagementView.jsx` |
+| `GET` | `/api/v1/programs` | Authenticated | Yes | List academic programs (filterable by school, dept) | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/programs/:id` | Authenticated | Yes | Program details with batches array | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `POST` | `/api/v1/programs` | `ADMIN` | Yes | Create academic program | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `PUT` | `/api/v1/programs/:id` | `ADMIN` | Yes | Update academic program | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `DELETE` | `/api/v1/programs/:id` | `ADMIN` | Yes | Deactivate academic program | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/batches` | Authenticated | Yes | List academic batches with counts | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/batches/:id` | Authenticated | Yes | Batch details with sections array | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `POST` | `/api/v1/batches` | `ADMIN` | Yes | Create academic batch | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `PUT` | `/api/v1/batches/:id` | `ADMIN` | Yes | Update academic batch | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `DELETE` | `/api/v1/batches/:id` | `ADMIN` | Yes | Delete batch (student/section dependency guarded) | `INTEGRATED` | `AcademicsManagementView.jsx` |
+| `GET` | `/api/v1/degrees` | Authenticated | Yes | List academic degrees | `INTEGRATED` | `AcademicsManagementView.jsx` |
 | `GET` | `/api/v1/blocks` | Authenticated | Yes | List campus blocks/buildings | `INTEGRATED` | `InfrastructureManagementView.jsx` |
 | `GET` | `/api/v1/blocks/:id` | Authenticated | Yes | Campus block details | `INTEGRATED` | `InfrastructureManagementView.jsx` |
 | `POST` | `/api/v1/blocks` | `ADMIN` | Yes | Create campus block | `INTEGRATED` | `InfrastructureManagementView.jsx` |
