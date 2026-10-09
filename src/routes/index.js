@@ -3,7 +3,11 @@ const express = require("express");
 const authRoutes = require("./auth.routes");
 const studentRoutes = require("./student.routes");
 const staffRoutes = require("./staff.routes");
+const schoolRoutes = require("./school.routes");
 const departmentRoutes = require("./department.routes");
+const programmeRoutes = require("./programme.routes");
+const batchRoutes = require("./batch.routes");
+const degreeRoutes = require("./degree.routes");
 const blockRoutes = require("./block.routes");
 const classroomRoutes = require("./classroom.routes");
 const attendanceSessionRoutes = require("./attendanceSession.routes");
@@ -38,8 +42,23 @@ router.use("/students", studentRoutes);
 // Staff management
 router.use("/staff", staffRoutes);
 
-// Department management
+// Academic Hierarchy: School -> Department -> Program -> Batch -> Section
+router.use("/schools", schoolRoutes);
+router.use("/academics/schools", schoolRoutes);
+
 router.use("/departments", departmentRoutes);
+router.use("/academics/departments", departmentRoutes);
+
+router.use("/programmes", programmeRoutes);
+router.use("/programs", programmeRoutes);
+router.use("/academics/programs", programmeRoutes);
+router.use("/academics/programmes", programmeRoutes);
+
+router.use("/batches", batchRoutes);
+router.use("/academics/batches", batchRoutes);
+
+router.use("/degrees", degreeRoutes);
+router.use("/academics/degrees", degreeRoutes);
 
 // Block management
 router.use("/blocks", blockRoutes);

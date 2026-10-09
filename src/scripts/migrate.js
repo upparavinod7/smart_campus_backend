@@ -1,23 +1,44 @@
 const fs = require("fs");
 const path = require("path");
-const pool = require("../config/mysql");
+const mysql = require("mysql2/promise");
+require("dotenv").config();
 
-async function runMigration() {
+async function runMigrations() {
+  let connection;
   try {
-    const sqlPath = path.join(
-      __dirname,
-      "../../database/mysql/001_create_revoked_tokens.sql",
-    );
-    const sql = fs.readFileSync(sqlPath, "utf8");
-    await pool.query(sql);
-    console.log("Migration executed successfully: revoked_tokens table verified.");
+    connection = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      port: process.env.DB_PORT,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      multipleStatements: true,
+    });
+
+    const migrationsDir = path.join(__dirname, "../../database/mysql");
+    const files = fs
+      .readdirSync(migrationsDir)
+      .filter((file) => file.endsWith(".sql"))
+      .sort();
+
+    for (const file of files) {
+      const filePath = path.join(migrationsDir, file);
+      const sql = fs.readFileSync(filePath, "utf8");
+      console.log(`Running migration: ${file}...`);
+      await connection.query(sql);
+      console.log(`✓ Migration completed: ${file}`);
+    }
+
+    console.log("All migrations executed successfully.");
     process.exit(0);
   } catch (err) {
     console.error("Migration failed:", err);
     process.exit(1);
   } finally {
-    await pool.end();
+    if (connection) {
+      await connection.end();
+    }
   }
 }
 
-runMigration();
+runMigrations();

@@ -3,24 +3,55 @@ const pool = require("../config/mysql");
 // GET /api/v1/departments
 const getDepartments = async (req, res) => {
   try {
+    const { school_id, is_active, search, q } = req.query;
+    const searchTerm = search || q;
+
+    const conditions = [];
+    const params = [];
+
+    if (school_id !== undefined && school_id !== "") {
+      conditions.push("d.school_id = ?");
+      params.push(Number(school_id));
+    }
+
+    if (is_active !== undefined && is_active !== "") {
+      const activeVal = is_active === "true" || is_active === "1" ? 1 : 0;
+      conditions.push("d.is_active = ?");
+      params.push(activeVal);
+    }
+
+    if (searchTerm) {
+      conditions.push("(d.name LIKE ? OR d.code LIKE ?)");
+      const pattern = `%${searchTerm.trim()}%`;
+      params.push(pattern, pattern);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
     const [departments] = await pool.query(
       `
-            SELECT
-                department_id,
-                school_id,
-                name,
-                code,
-                is_active,
-                created_at,
-                updated_at
-            FROM departments
-            ORDER BY department_id
-            `,
+      SELECT
+          d.department_id,
+          d.school_id,
+          s.code AS school_code,
+          s.name AS school_name,
+          d.name,
+          d.code,
+          d.is_active,
+          d.created_at,
+          d.updated_at
+      FROM departments d
+      LEFT JOIN schools s ON d.school_id = s.school_id
+      ${whereClause}
+      ORDER BY d.department_id
+      `,
+      params,
     );
 
     return res.status(200).json({
       success: true,
       message: "Departments retrieved successfully",
+      count: departments.length,
       data: departments,
     });
   } catch (error) {
@@ -40,18 +71,21 @@ const getDepartmentById = async (req, res) => {
 
     const [departments] = await pool.query(
       `
-            SELECT
-                department_id,
-                school_id,
-                name,
-                code,
-                is_active,
-                created_at,
-                updated_at
-            FROM departments
-            WHERE department_id = ?
-            LIMIT 1
-            `,
+      SELECT
+          d.department_id,
+          d.school_id,
+          s.code AS school_code,
+          s.name AS school_name,
+          d.name,
+          d.code,
+          d.is_active,
+          d.created_at,
+          d.updated_at
+      FROM departments d
+      LEFT JOIN schools s ON d.school_id = s.school_id
+      WHERE d.department_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 

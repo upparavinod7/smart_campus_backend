@@ -155,6 +155,10 @@ const getTimetableSlots = async (req, res) => {
       section_id,
       subject_id,
       offering_id,
+      batch_id,
+      programme_id,
+      department_id,
+      school_id,
       is_active,
     } = req.query;
 
@@ -191,6 +195,26 @@ const getTimetableSlots = async (req, res) => {
       params.push(Number(offering_id));
     }
 
+    if (batch_id) {
+      conditions.push("sec.batch_id = ?");
+      params.push(Number(batch_id));
+    }
+
+    if (programme_id) {
+      conditions.push("bt.programme_id = ?");
+      params.push(Number(programme_id));
+    }
+
+    if (department_id) {
+      conditions.push("p.department_id = ?");
+      params.push(Number(department_id));
+    }
+
+    if (school_id) {
+      conditions.push("p.school_id = ?");
+      params.push(Number(school_id));
+    }
+
     if (is_active !== undefined && is_active !== "") {
       const activeVal = is_active === "true" || is_active === "1" ? 1 : 0;
       conditions.push("ts.is_active = ?");
@@ -205,6 +229,17 @@ const getTimetableSlots = async (req, res) => {
           ts.slot_id,
           ts.section_id,
           sec.section_code,
+          sec.batch_id,
+          bt.label AS batch_label,
+          p.programme_id,
+          p.name AS programme_name,
+          p.programme_code,
+          d.department_id,
+          d.name AS department_name,
+          d.code AS department_code,
+          s.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
           co.offering_id,
           sub.subject_id,
           sub.subject_code,
@@ -233,6 +268,10 @@ const getTimetableSlots = async (req, res) => {
       JOIN faculty f ON ts.faculty_id = f.faculty_id
       JOIN classrooms c ON ts.classroom_id = c.classroom_id
       LEFT JOIN blocks b ON c.block_id = b.block_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN departments d ON p.department_id = d.department_id
+      LEFT JOIN schools s ON p.school_id = s.school_id
       ${whereClause}
       ORDER BY ts.day_of_week ASC, ts.start_time ASC, ts.slot_id ASC
       `,
@@ -269,6 +308,17 @@ const getTimetableSlotById = async (req, res) => {
           ts.slot_id,
           ts.section_id,
           sec.section_code,
+          sec.batch_id,
+          bt.label AS batch_label,
+          p.programme_id,
+          p.name AS programme_name,
+          p.programme_code,
+          d.department_id,
+          d.name AS department_name,
+          d.code AS department_code,
+          s.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
           co.offering_id,
           sub.subject_id,
           sub.subject_code,
@@ -297,6 +347,10 @@ const getTimetableSlotById = async (req, res) => {
       JOIN faculty f ON ts.faculty_id = f.faculty_id
       JOIN classrooms c ON ts.classroom_id = c.classroom_id
       LEFT JOIN blocks b ON c.block_id = b.block_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN departments d ON p.department_id = d.department_id
+      LEFT JOIN schools s ON p.school_id = s.school_id
       WHERE ts.slot_id = ?
       LIMIT 1
       `,
@@ -506,6 +560,17 @@ const createTimetableSlot = async (req, res) => {
           ts.slot_id,
           ts.section_id,
           sec.section_code,
+          sec.batch_id,
+          bt.label AS batch_label,
+          p.programme_id,
+          p.name AS programme_name,
+          p.programme_code,
+          d.department_id,
+          d.name AS department_name,
+          d.code AS department_code,
+          s.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
           co.offering_id,
           sub.subject_id,
           sub.subject_code,
@@ -534,6 +599,10 @@ const createTimetableSlot = async (req, res) => {
       JOIN faculty f ON ts.faculty_id = f.faculty_id
       JOIN classrooms c ON ts.classroom_id = c.classroom_id
       LEFT JOIN blocks b ON c.block_id = b.block_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN departments d ON p.department_id = d.department_id
+      LEFT JOIN schools s ON p.school_id = s.school_id
       WHERE ts.slot_id = ?
       LIMIT 1
       `,
@@ -771,6 +840,17 @@ const updateTimetableSlot = async (req, res) => {
           ts.slot_id,
           ts.section_id,
           sec.section_code,
+          sec.batch_id,
+          bt.label AS batch_label,
+          p.programme_id,
+          p.name AS programme_name,
+          p.programme_code,
+          d.department_id,
+          d.name AS department_name,
+          d.code AS department_code,
+          s.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
           co.offering_id,
           sub.subject_id,
           sub.subject_code,
@@ -799,6 +879,10 @@ const updateTimetableSlot = async (req, res) => {
       JOIN faculty f ON ts.faculty_id = f.faculty_id
       JOIN classrooms c ON ts.classroom_id = c.classroom_id
       LEFT JOIN blocks b ON c.block_id = b.block_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN departments d ON p.department_id = d.department_id
+      LEFT JOIN schools s ON p.school_id = s.school_id
       WHERE ts.slot_id = ?
       LIMIT 1
       `,

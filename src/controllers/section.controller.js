@@ -2,11 +2,20 @@ const pool = require("../config/mysql");
 
 /**
  * GET /api/v1/sections
- * List sections with relational joins to offerings, subjects, terms, and enrolled counts.
+ * List sections with relational joins to offerings, subjects, terms, batches, programmes, departments, and schools.
  */
 const getSections = async (req, res) => {
   try {
-    const { offering_id, section_code, search, q } = req.query;
+    const {
+      offering_id,
+      batch_id,
+      programme_id,
+      department_id,
+      school_id,
+      section_code,
+      search,
+      q,
+    } = req.query;
     const searchTerm = search || q;
 
     const conditions = [];
@@ -17,15 +26,35 @@ const getSections = async (req, res) => {
       params.push(Number(offering_id));
     }
 
+    if (batch_id) {
+      conditions.push("sec.batch_id = ?");
+      params.push(Number(batch_id));
+    }
+
+    if (programme_id) {
+      conditions.push("bt.programme_id = ?");
+      params.push(Number(programme_id));
+    }
+
+    if (department_id) {
+      conditions.push("p.department_id = ?");
+      params.push(Number(department_id));
+    }
+
+    if (school_id) {
+      conditions.push("p.school_id = ?");
+      params.push(Number(school_id));
+    }
+
     if (section_code) {
       conditions.push("sec.section_code = ?");
       params.push(section_code.trim().toUpperCase());
     }
 
     if (searchTerm) {
-      conditions.push("(sub.name LIKE ? OR sub.subject_code LIKE ? OR sec.section_code LIKE ?)");
+      conditions.push("(sub.name LIKE ? OR sub.subject_code LIKE ? OR sec.section_code LIKE ? OR bt.label LIKE ? OR p.name LIKE ?)");
       const pattern = `%${searchTerm.trim()}%`;
-      params.push(pattern, pattern, pattern);
+      params.push(pattern, pattern, pattern, pattern, pattern);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -35,6 +64,17 @@ const getSections = async (req, res) => {
       SELECT
           sec.section_id,
           sec.offering_id,
+          sec.batch_id,
+          bt.label AS batch_label,
+          p.programme_id,
+          p.name AS programme_name,
+          p.programme_code,
+          d.department_id,
+          d.name AS department_name,
+          d.code AS department_code,
+          s.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
           sec.section_code,
           sec.max_strength,
           sub.subject_id,
@@ -51,6 +91,10 @@ const getSections = async (req, res) => {
       JOIN subjects sub ON co.subject_id = sub.subject_id
       JOIN academic_terms at ON co.term_id = at.term_id
       JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN departments d ON p.department_id = d.department_id
+      LEFT JOIN schools s ON p.school_id = s.school_id
       ${whereClause}
       ORDER BY sec.section_id ASC
       `,
@@ -75,7 +119,7 @@ const getSections = async (req, res) => {
 
 /**
  * GET /api/v1/sections/:id
- * Retrieve a single section by ID.
+ * Retrieve a single section by ID with hierarchical metadata.
  */
 const getSectionById = async (req, res) => {
   try {
@@ -86,6 +130,17 @@ const getSectionById = async (req, res) => {
       SELECT
           sec.section_id,
           sec.offering_id,
+          sec.batch_id,
+          bt.label AS batch_label,
+          p.programme_id,
+          p.name AS programme_name,
+          p.programme_code,
+          d.department_id,
+          d.name AS department_name,
+          d.code AS department_code,
+          s.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
           sec.section_code,
           sec.max_strength,
           sub.subject_id,
@@ -102,6 +157,10 @@ const getSectionById = async (req, res) => {
       JOIN subjects sub ON co.subject_id = sub.subject_id
       JOIN academic_terms at ON co.term_id = at.term_id
       JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN departments d ON p.department_id = d.department_id
+      LEFT JOIN schools s ON p.school_id = s.school_id
       WHERE sec.section_id = ?
       LIMIT 1
       `,
@@ -132,11 +191,11 @@ const getSectionById = async (req, res) => {
 
 /**
  * POST /api/v1/sections
- * Create a new section under a course offering. ADMIN only.
+ * Create a new section under a course offering and optional batch. ADMIN only.
  */
 const createSection = async (req, res) => {
   try {
-    const { offering_id, section_code, max_strength } = req.body || {};
+    const { offering_id, batch_id, section_code, max_strength } = req.body || {};
 
     if (!offering_id || !section_code) {
       return res.status(400).json({
@@ -167,6 +226,28 @@ const createSection = async (req, res) => {
       });
     }
 
+    // Verify batch_id if provided
+    let parsedBatchId = null;
+    if (batch_id !== undefined && batch_id !== null && batch_id !== "") {
+      parsedBatchId = Number(batch_id);
+      if (isNaN(parsedBatchId)) {
+        return res.status(400).json({
+          success: false,
+          message: "batch_id must be a valid number",
+        });
+      }
+      const [batchRows] = await pool.query(
+        "SELECT batch_id FROM batches WHERE batch_id = ? LIMIT 1",
+        [parsedBatchId],
+      );
+      if (batchRows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid batch_id: batch does not exist",
+        });
+      }
+    }
+
     // Validate max_strength if provided
     let parsedStrength = null;
     if (max_strength !== undefined && max_strength !== null) {
@@ -193,10 +274,10 @@ const createSection = async (req, res) => {
 
     const [result] = await pool.query(
       `
-      INSERT INTO sections (offering_id, section_code, max_strength)
-      VALUES (?, ?, ?)
+      INSERT INTO sections (offering_id, batch_id, section_code, max_strength)
+      VALUES (?, ?, ?, ?)
       `,
-      [offeringNum, trimmedCode, parsedStrength],
+      [offeringNum, parsedBatchId, trimmedCode, parsedStrength],
     );
 
     const [createdRows] = await pool.query(
@@ -204,6 +285,17 @@ const createSection = async (req, res) => {
       SELECT
           sec.section_id,
           sec.offering_id,
+          sec.batch_id,
+          bt.label AS batch_label,
+          p.programme_id,
+          p.name AS programme_name,
+          p.programme_code,
+          d.department_id,
+          d.name AS department_name,
+          d.code AS department_code,
+          s.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
           sec.section_code,
           sec.max_strength,
           sub.subject_id,
@@ -220,6 +312,10 @@ const createSection = async (req, res) => {
       JOIN subjects sub ON co.subject_id = sub.subject_id
       JOIN academic_terms at ON co.term_id = at.term_id
       JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN departments d ON p.department_id = d.department_id
+      LEFT JOIN schools s ON p.school_id = s.school_id
       WHERE sec.section_id = ?
       LIMIT 1
       `,
@@ -248,7 +344,7 @@ const createSection = async (req, res) => {
 const updateSection = async (req, res) => {
   try {
     const { id } = req.params;
-    const { offering_id, section_code, max_strength } = req.body || {};
+    const { offering_id, batch_id, section_code, max_strength } = req.body || {};
 
     const [existingRows] = await pool.query(
       "SELECT * FROM sections WHERE section_id = ? LIMIT 1",
@@ -264,6 +360,7 @@ const updateSection = async (req, res) => {
 
     const current = existingRows[0];
     let newOffering = current.offering_id;
+    let newBatchId = current.batch_id;
     let newCode = current.section_code;
     let newStrength = current.max_strength;
 
@@ -280,6 +377,31 @@ const updateSection = async (req, res) => {
         });
       }
       newOffering = offeringNum;
+    }
+
+    if (batch_id !== undefined) {
+      if (batch_id === null || batch_id === "") {
+        newBatchId = null;
+      } else {
+        const parsedBatch = Number(batch_id);
+        if (isNaN(parsedBatch)) {
+          return res.status(400).json({
+            success: false,
+            message: "batch_id must be a valid number",
+          });
+        }
+        const [batchRows] = await pool.query(
+          "SELECT batch_id FROM batches WHERE batch_id = ? LIMIT 1",
+          [parsedBatch],
+        );
+        if (batchRows.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid batch_id: batch does not exist",
+          });
+        }
+        newBatchId = parsedBatch;
+      }
     }
 
     if (section_code !== undefined) {
@@ -324,10 +446,10 @@ const updateSection = async (req, res) => {
     await pool.query(
       `
       UPDATE sections
-      SET offering_id = ?, section_code = ?, max_strength = ?, updated_at = NOW()
+      SET offering_id = ?, batch_id = ?, section_code = ?, max_strength = ?, updated_at = NOW()
       WHERE section_id = ?
       `,
-      [newOffering, newCode, newStrength, id],
+      [newOffering, newBatchId, newCode, newStrength, id],
     );
 
     const [updatedRows] = await pool.query(
@@ -335,6 +457,17 @@ const updateSection = async (req, res) => {
       SELECT
           sec.section_id,
           sec.offering_id,
+          sec.batch_id,
+          bt.label AS batch_label,
+          p.programme_id,
+          p.name AS programme_name,
+          p.programme_code,
+          d.department_id,
+          d.name AS department_name,
+          d.code AS department_code,
+          s.school_id,
+          s.name AS school_name,
+          s.code AS school_code,
           sec.section_code,
           sec.max_strength,
           sub.subject_id,
@@ -351,6 +484,10 @@ const updateSection = async (req, res) => {
       JOIN subjects sub ON co.subject_id = sub.subject_id
       JOIN academic_terms at ON co.term_id = at.term_id
       JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN departments d ON p.department_id = d.department_id
+      LEFT JOIN schools s ON p.school_id = s.school_id
       WHERE sec.section_id = ?
       LIMIT 1
       `,

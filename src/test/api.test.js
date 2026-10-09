@@ -2546,6 +2546,448 @@ test("FEAT-011 Faculty Profile: Unlinked faculty identity returns 404", async ()
   assert.equal(body.success, false);
 });
 
+// ============================================================================
+// HIERARCHICAL ACADEMIC STRUCTURE & TIMETABLE/ATTENDANCE INTEGRATION TESTS
+// School -> Department -> Program -> Batch -> Section -> Timetable -> Class Session -> Attendance Records
+// ============================================================================
+
+test("Hierarchical Academics: Schools RBAC, Validation, and Full CRUD Lifecycle", async () => {
+  // 1. Unauthenticated request returns 401
+  const unauthRes = await fetch(`${baseUrl}/schools`);
+  assert.equal(unauthRes.status, 401);
+
+  // 2. Student role attempting to create school returns 403
+  const forbiddenRes = await fetch(`${baseUrl}/schools`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ code: "STEST", name: "School of Student" }),
+  });
+  assert.equal(forbiddenRes.status, 403);
+
+  // 3. Validation: Missing code and name returns 400
+  const invalidRes = await fetch(`${baseUrl}/schools`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+  assert.equal(invalidRes.status, 400);
+
+  // 4. Duplicate code returns 409 (SOET is seeded)
+  const dupCodeRes = await fetch(`${baseUrl}/schools`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ code: "SOET", name: "Duplicate Engineering School" }),
+  });
+  assert.equal(dupCodeRes.status, 409);
+
+  // 5. Create new school returns 201
+  const uniqueCode = `ST${Date.now().toString().slice(-4)}`;
+  const createRes = await fetch(`${baseUrl}/schools`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      code: uniqueCode,
+      name: `Test School of Innovation ${uniqueCode}`,
+      is_active: 1,
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  assert.equal(createBody.data.code, uniqueCode);
+  const testSchoolId = createBody.data.school_id;
+
+  // 6. List schools: returns department_count and includes newly created school
+  const listRes = await fetch(`${baseUrl}/schools?search=${uniqueCode}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const listBody = await listRes.json();
+  assert.equal(listRes.status, 200);
+  assert.equal(listBody.success, true);
+  assert.ok(listBody.data.length >= 1);
+  assert.equal(listBody.data[0].school_id, testSchoolId);
+
+  // 7. Get school by ID returns school with departments array
+  const getByIdRes = await fetch(`${baseUrl}/schools/${testSchoolId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const getByIdBody = await getByIdRes.json();
+  assert.equal(getByIdRes.status, 200);
+  assert.equal(getByIdBody.data.code, uniqueCode);
+  assert.ok(Array.isArray(getByIdBody.data.departments));
+
+  // 8. Update school returns 200
+  const updateRes = await fetch(`${baseUrl}/schools/${testSchoolId}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: `Updated Test School ${uniqueCode}`,
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.data.name, `Updated Test School ${uniqueCode}`);
+
+  // 9. Deactivate school returns 200, second call returns 400
+  const delRes = await fetch(`${baseUrl}/schools/${testSchoolId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(delRes.status, 200);
+
+  const repeatDelRes = await fetch(`${baseUrl}/schools/${testSchoolId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(repeatDelRes.status, 400);
+});
+
+test("Hierarchical Academics: Department Filtering by School and Degrees Retrieval", async () => {
+  // 1. Degrees endpoint retrieves degrees
+  const degRes = await fetch(`${baseUrl}/degrees`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const degBody = await degRes.json();
+  assert.equal(degRes.status, 200);
+  assert.ok(degBody.data.length > 0);
+
+  // 2. Department filtering by school_id
+  const deptRes = await fetch(`${baseUrl}/departments?school_id=3`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const deptBody = await deptRes.json();
+  assert.equal(deptRes.status, 200);
+  assert.ok(deptBody.data.length > 0);
+  // Verify all returned departments belong to school_id = 3 and include school metadata
+  for (const dept of deptBody.data) {
+    assert.equal(dept.school_id, 3);
+    assert.ok(dept.school_name);
+  }
+});
+
+test("Hierarchical Academics: Programmes RBAC, Aliases, Filtering, and CRUD Lifecycle", async () => {
+  // 1. Aliases: /programs and /programmes both return 200
+  const progRes1 = await fetch(`${baseUrl}/programs`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(progRes1.status, 200);
+
+  const progRes2 = await fetch(`${baseUrl}/programmes`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(progRes2.status, 200);
+
+  // 2. Student role cannot create programme
+  const forbiddenRes = await fetch(`${baseUrl}/programs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      school_id: 3,
+      degree_id: 1,
+      name: "BTech Robotics",
+    }),
+  });
+  assert.equal(forbiddenRes.status, 403);
+
+  // 3. Validation: missing required fields returns 400
+  const invalidRes = await fetch(`${baseUrl}/programs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ school_id: 3 }),
+  });
+  assert.equal(invalidRes.status, 400);
+
+  // 4. Invalid school_id returns 400
+  const badSchoolRes = await fetch(`${baseUrl}/programs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      school_id: 99999,
+      degree_id: 1,
+      name: "BTech NonExistent",
+    }),
+  });
+  assert.equal(badSchoolRes.status, 400);
+
+  // 4b. Mismatched department and school returns 400 (department 3 belongs to school 2, not school 3)
+  const mismatchDeptRes = await fetch(`${baseUrl}/programs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      school_id: 3,
+      department_id: 3,
+      degree_id: 1,
+      name: "BTech Mismatch",
+    }),
+  });
+  assert.equal(mismatchDeptRes.status, 400);
+
+  // 5. Create new programme returns 201 (department 5 belongs to school 3)
+  const uniqueName = `Aerospace Informatics ${Date.now()}`;
+  const uniqueCode = `AI${Date.now().toString().slice(-4)}`;
+  const createRes = await fetch(`${baseUrl}/programs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      school_id: 3,
+      department_id: 5,
+      degree_id: 1,
+      name: uniqueName,
+      programme_code: uniqueCode,
+      partner_track: "STANDARD",
+      duration_years: 4.0,
+      is_active: 1,
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  assert.equal(createBody.data.programme_code, uniqueCode);
+  const testProgId = createBody.data.programme_id;
+
+  // 6. Duplicate identity returns 409
+  const dupRes = await fetch(`${baseUrl}/programs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      school_id: 3,
+      degree_id: 1,
+      name: uniqueName,
+      programme_code: `D${uniqueCode.slice(1)}`,
+      partner_track: "STANDARD",
+    }),
+  });
+  assert.equal(dupRes.status, 409);
+
+  // 7. Get programme by ID returns joined data and batches array
+  const getByIdRes = await fetch(`${baseUrl}/programs/${testProgId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const getByIdBody = await getByIdRes.json();
+  assert.equal(getByIdRes.status, 200);
+  assert.equal(getByIdBody.data.name, uniqueName);
+  assert.ok(Array.isArray(getByIdBody.data.batches));
+
+  // 8. Update programme returns 200
+  const updateRes = await fetch(`${baseUrl}/programs/${testProgId}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: `${uniqueName} Updated`,
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.data.name, `${uniqueName} Updated`);
+
+  // 9. Deactivate programme returns 200
+  const delRes = await fetch(`${baseUrl}/programs/${testProgId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(delRes.status, 200);
+});
+
+test("Hierarchical Academics: Batches Lifecycle, Relational Integrity, and Dependency Safeguards", async () => {
+  // 1. Unauthenticated batches request returns 401
+  const unauthRes = await fetch(`${baseUrl}/batches`);
+  assert.equal(unauthRes.status, 401);
+
+  // 2. Student role attempting to create batch returns 403
+  const forbiddenRes = await fetch(`${baseUrl}/batches`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ programme_id: 97, start_year_id: 1, label: "2029-33" }),
+  });
+  assert.equal(forbiddenRes.status, 403);
+
+  // 3. Validation: missing fields returns 400
+  const invalidRes = await fetch(`${baseUrl}/batches`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ label: "2029-33" }),
+  });
+  assert.equal(invalidRes.status, 400);
+
+  // 4. Duplicate (programme_id, start_year_id) returns 409 (programme 97, year 4 is seeded)
+  const dupRes = await fetch(`${baseUrl}/batches`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ programme_id: 97, start_year_id: 4, label: "2026-30 duplicate" }),
+  });
+  assert.equal(dupRes.status, 409);
+
+  // 5. Create new batch for a different programme returns 201
+  const createRes = await fetch(`${baseUrl}/batches`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      programme_id: 77,
+      start_year_id: 4,
+      label: "2026-30 Test Batch",
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.data.label, "2026-30 Test Batch");
+  const testBatchId = createBody.data.batch_id;
+
+  // 6. List batches with filters: returns counts and hierarchy joins
+  const listRes = await fetch(`${baseUrl}/batches?programme_id=77`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const listBody = await listRes.json();
+  assert.equal(listRes.status, 200);
+  assert.ok(listBody.data.length >= 1);
+  assert.equal(listBody.data[0].batch_id, testBatchId);
+  assert.ok(listBody.data[0].programme_name);
+
+  // 7. Update batch returns 200
+  const updateRes = await fetch(`${baseUrl}/batches/${testBatchId}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      label: "2026-30 Renamed Batch",
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.data.label, "2026-30 Renamed Batch");
+
+  // 8. Dependency safeguard: deleting seeded batch 4 (which has students and sections) returns 400
+  const protectedDelRes = await fetch(`${baseUrl}/batches/4`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(protectedDelRes.status, 400);
+
+  // 9. Deleting newly created empty batch succeeds returns 200
+  const deleteRes = await fetch(`${baseUrl}/batches/${testBatchId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(deleteRes.status, 200);
+});
+
+test("Hierarchical Academics: Section Creation with Batch, Hierarchy Retrieval, and Timetable Integration", async () => {
+  // 1. Create section with invalid batch_id returns 400
+  const invalidBatchRes = await fetch(`${baseUrl}/sections`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      offering_id: 1,
+      batch_id: 99999,
+      section_code: "Z",
+    }),
+  });
+  assert.equal(invalidBatchRes.status, 400);
+
+  // 2. Create section with valid batch_id returns 201 with hierarchy fields
+  const uniqueCode = `H${Date.now().toString().slice(-3)}`;
+  const createSecRes = await fetch(`${baseUrl}/sections`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      offering_id: 1,
+      batch_id: 4,
+      section_code: uniqueCode,
+      max_strength: 55,
+    }),
+  });
+  const createSecBody = await createSecRes.json();
+  assert.equal(createSecRes.status, 201);
+  assert.equal(createSecBody.data.batch_id, 4);
+  assert.equal(createSecBody.data.batch_label, "2026-30");
+  assert.ok(createSecBody.data.programme_name);
+  const testSecId = createSecBody.data.section_id;
+
+  // 3. List sections with batch_id filter
+  const listSecRes = await fetch(`${baseUrl}/sections?batch_id=4`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const listSecBody = await listSecRes.json();
+  assert.equal(listSecRes.status, 200);
+  assert.ok(listSecBody.data.some((s) => s.section_id === testSecId));
+
+  // 4. Timetable slots query returns hierarchy metadata and filters by batch_id
+  const ttRes = await fetch(`${baseUrl}/timetable?batch_id=4`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const ttBody = await ttRes.json();
+  assert.equal(ttRes.status, 200);
+  assert.ok(ttBody.data.length > 0);
+  const sampleSlot = ttBody.data[0];
+  assert.ok(sampleSlot.batch_label, "Timetable slot must include batch_label");
+  assert.ok(sampleSlot.programme_name, "Timetable slot must include programme_name");
+  assert.ok(sampleSlot.department_name, "Timetable slot must include department_name");
+  assert.ok(sampleSlot.school_name, "Timetable slot must include school_name");
+
+  // 5. Cleanup created section
+  const cleanupRes = await fetch(`${baseUrl}/sections/${testSecId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(cleanupRes.status, 200);
+});
+
+
 
 
 
