@@ -11,16 +11,18 @@
 
 | Metric | Count |
 | :--- | :--- |
-| **Total Identified Features** | 15 |
-| **Backend Feature Implementation** | 15 / 15 Completed |
-| **Backend Regression Test Suite** | 101 / 101 Passing (0 failed, 0 skipped, duration ~2.5s) |
-| **Academic Hierarchy Implementation** | Complete (School ➔ Department ➔ Program ➔ Batch ➔ Section ➔ Timetable ➔ Class Session ➔ Attendance Records) |
+| **Total Identified Features** | 16 |
+| **Backend Feature Implementation** | 16 / 16 Completed |
+| **Backend Regression Test Suite** | 109 / 109 Passing (0 failed, 0 skipped, duration ~2.4s) |
+| **Backend Code Coverage** | Lines: 79.28% \| Functions: 92.00% \| Branches: 57.89% |
+| **Academic Hierarchy Implementation** | Complete (School ➔ Department ➔ Program ➔ Batch ➔ Academic Year/Term ➔ Course Offering ➔ Section ➔ Timetable ➔ Class Session ➔ Attendance Records, Section + Student ➔ Enrollment) |
+| **Semester Workflows & Isolation** | Complete (FEAT-016: Academic Years & Terms APIs, Enrollments & Section Rosters, Semester-Isolated Timetable Engine, Student & Faculty Portal Term Filters, Admin Attendance Reports) |
 | **UI Stabilization & Bug Resolution** | Complete (FEAT-015: HTML error sanitization, 404 JSON fallback, application confirmation modal replacing window.confirm, academic tabs responsive layout, CRUD verification) |
-| **Backend Branch** | `fix/academic-crud-api-errors` @ `9e8563c` |
+| **Backend Feature Branch** | `feature/academic-hierarchy-semester-workflows` @ `bc1a6dd` |
+| **Backend Base Branch** | `fix/academic-crud-api-errors` @ `9e8563c` |
 | **Frontend Branch** | `fix/academic-crud-api-errors` @ `2f72300` |
-| **Frontend Build & Lint Quality** | 0 lint errors, production Vite build passed (247ms) |
 | **Cross-Role E2E Persona QA** | 100% Verified (Admin, Faculty, Student authentic workflows, 5-tier filtering & security barriers) |
-| **Next Recommended Milestone** | RELEASE TO MAIN (Consolidate stabilization branches into main for both backend and frontend) |
+| **Next Recommended Milestone** | RELEASE TO MAIN (Consolidate stabilization and academic workflow branches into main) |
 
 ---
 
@@ -614,6 +616,64 @@
 
 ---
 
+### `FEAT-016`: Academic Hierarchy, Semester Timetable, Attendance, Faculty and Student Portals
+- **Feature ID**: `FEAT-016`
+- **Feature Name**: Academic Hierarchy, Semester Timetable, Attendance, Faculty and Student Portals Implementation
+- **Module**: Academic Management, Semester Timetable Scheduling, Student Enrollments, Portal Isolation, and Administrative Reporting
+- **Backend Status**: `TESTED`
+- **Frontend Status**: `READY_FOR_INTEGRATION`
+- **Architectural Scope & Technical Accomplishments**:
+  1. **Academic Years (`academic_years`) Management**:
+     - Full REST API with endpoints (`GET`, `GET :id`, `POST`, `PUT`, `DELETE /api/v1/academic-years`) and route aliases (`/academics/years`, `/academics/academic-years`).
+     - Validation: `label` format, start/end dates integrity (`start_date < end_date`), unique constraint enforcement (409 Conflict).
+     - Safeguards: Relational protection prevents deletion of academic years linked to academic terms or batches (409 Conflict).
+  2. **Academic Terms (`academic_terms`) Management**:
+     - Full REST API with endpoints (`GET`, `GET :id`, `POST`, `PUT`, `DELETE /api/v1/academic-terms`) and route aliases (`/academics/terms`, `/academics/academic-terms`).
+     - Validation: parent `academic_year_id` existence, enum validation (`ODD`, `EVEN`, `SUMMER`), dates within valid range.
+     - Uniqueness: composite constraint `(academic_year_id, term_type)` strictly enforced (409 Conflict).
+     - Safeguards: Relational protection prevents deletion of terms referenced in active course offerings (409 Conflict).
+  3. **Student Enrollments (`enrollments`) & Section Rosters**:
+     - Full REST API with endpoints (`GET`, `GET :id`, `POST`, `PUT`, `DELETE /api/v1/enrollments`) and route aliases (`/academics/enrollments`).
+     - Section Roster endpoints (`GET /api/v1/sections/:id/roster` and `GET /api/v1/sections/:id/students`) returning detailed student rosters with registration status and attendance totals.
+     - Validation & Capacity: checks student & section validity, enforces unique enrollment per student/section (409 Conflict), and strictly guards section capacity (`max_strength`) to prevent over-enrollment (400 Bad Request).
+     - Dropping & Safeguards: allows status transition to `DROPPED` with `dropped_on` audit timestamp, preventing deletion when attendance records are present (409 Conflict).
+  4. **Semester-Specific Timetable Engine Upgrade**:
+     - Relational derivation: Timetable slots derive terms without schema denormalization (`timetable_slots ➔ sections ➔ course_offerings ➔ academic_terms ➔ academic_years`).
+     - Extended payload: All timetable queries now expose `term_id`, `term_type`, `academic_year_id`, `academic_year_label`, and term date ranges.
+     - Cascading filters: Supported `term_id`/`semester`, `academic_year_id`, `term_type`, and student enrollment filtering (`student_id`).
+     - Scheduling rules: Preserves conflict prevention (faculty, classroom, section double-booking checks) while supporting adjacent abutting slots.
+  5. **Student Portal Semester Isolation**:
+     - `/api/v1/student/me/courses`: filtered by `term_id`/`semester` and `academic_year_id`, returning active enrolled courses.
+     - `/api/v1/student/me/timetable`: strictly isolates timetable slots to the queried semester/term.
+     - `/api/v1/student/me/attendance`: filters session attendance logs to the queried term.
+     - `/api/v1/student/me/attendance/summary` & `/dashboard`: computes overall and subject-wise attendance percentages scoped strictly to the semester.
+  6. **Faculty Portal Term-Scoped Workflows**:
+     - `/api/v1/faculty/timetable`: filters weekly assigned timetable by term/semester.
+     - `/api/v1/faculty/courses` & `/sections`: scopes assigned courses and sections to the active term.
+     - `/api/v1/faculty/attendance/sessions`: filters sessions by term/semester with strict ownership checks.
+     - `/api/v1/faculty/attendance/summary`: computes aggregate faculty attendance metrics scoped by term.
+  7. **Admin Semester-Wise Reports & Aggregations**:
+     - `/api/v1/admin/reports/attendance` & `/api/v1/attendance/report`: high-performance parameterized SQL reporting across terms, years, departments, programmes, batches, sections, and subjects.
+     - Exposes session counts (total, completed, cancelled, open), record totals, and percentage compliance with granular section breakdown.
+- **Files Added / Modified**:
+  - Controllers Created: `src/controllers/academicYear.controller.js`, `src/controllers/academicTerm.controller.js`, `src/controllers/enrollment.controller.js`
+  - Routes Created: `src/routes/academicYear.routes.js`, `src/routes/academicTerm.routes.js`, `src/routes/enrollment.routes.js`
+  - Controllers Updated: `src/controllers/timetable.controller.js`, `src/controllers/section.controller.js`, `src/controllers/studentPortal.controller.js`, `src/controllers/facultyPortal.controller.js`, `src/controllers/admin.controller.js`, `src/controllers/attendance.controller.js`
+  - Routes Updated: `src/routes/index.js`, `src/routes/section.routes.js`, `src/routes/admin.routes.js`, `src/routes/attendance.routes.js`
+  - Automated Tests: `src/test/api.test.js` (+8 new test suites, 109/109 tests passing)
+- **Backend Branch**: `feature/academic-hierarchy-semester-workflows`
+- **Backend Commit SHA**: `bc1a6dd`
+- **Backend Test Results**: 109 / 109 passing tests (`npm test`, 0 failed, 0 skipped, duration ~2.4s)
+- **Backend Code Coverage**: Lines: 79.28% | Functions: 92.00% | Branches: 57.89%
+- **Backend Push Status**: `READY_TO_PUSH`
+- **Pull Request URLs**:
+  - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/feature/academic-hierarchy-semester-workflows`
+- **Merge Status**: Open (Ready for user review and PR merge)
+- **Blockers**: None
+- **Last Verified Update**: 2026-10-09T15:20:00+05:30
+
+---
+
 ## 3. Authoritative API Inventory & Status
 
 | Method | Endpoint | Allowed Roles | Auth Required | Purpose | Status | Frontend Component |
@@ -715,5 +775,24 @@
 | `POST` | `/api/v1/faculty/attendance/sessions/:sessionId/records` | `FACULTY` | Yes | Mark manual student attendance | `INTEGRATED` | `FacultySessionsView.jsx` |
 | `PUT` | `/api/v1/faculty/attendance/sessions/:id/records/:recordId/override` | `FACULTY` | Yes | Override attendance with audit logging | `INTEGRATED` | `FacultySessionsView.jsx` |
 | `GET` | `/api/v1/faculty/attendance/summary` | `FACULTY` | Yes | Aggregated faculty attendance metrics | `INTEGRATED` | `FacultyAttendanceLogsView.jsx` |
+| `GET` | `/api/v1/academic-years` | Authenticated | Yes | List academic years with term/batch counts | `TESTED / READY` | Academic Management |
+| `GET` | `/api/v1/academic-years/:id` | Authenticated | Yes | Academic year details with terms list | `TESTED / READY` | Academic Management |
+| `POST` | `/api/v1/academic-years` | `ADMIN` | Yes | Create academic year with date validation | `TESTED / READY` | Academic Management |
+| `PUT` | `/api/v1/academic-years/:id` | `ADMIN` | Yes | Update academic year | `TESTED / READY` | Academic Management |
+| `DELETE` | `/api/v1/academic-years/:id` | `ADMIN` | Yes | Delete academic year (safeguarded) | `TESTED / READY` | Academic Management |
+| `GET` | `/api/v1/academic-terms` | Authenticated | Yes | List academic terms (filterable by year, type) | `TESTED / READY` | Academic Management |
+| `GET` | `/api/v1/academic-terms/:id` | Authenticated | Yes | Academic term details | `TESTED / READY` | Academic Management |
+| `POST` | `/api/v1/academic-terms` | `ADMIN` | Yes | Create academic term with uniqueness checks | `TESTED / READY` | Academic Management |
+| `PUT` | `/api/v1/academic-terms/:id` | `ADMIN` | Yes | Update academic term | `TESTED / READY` | Academic Management |
+| `DELETE` | `/api/v1/academic-terms/:id` | `ADMIN` | Yes | Delete academic term (course offering guarded) | `TESTED / READY` | Academic Management |
+| `GET` | `/api/v1/enrollments` | Authenticated | Yes | List enrollments (filterable by section, student, term, status) | `TESTED / READY` | Academic Management |
+| `GET` | `/api/v1/enrollments/:id` | Authenticated | Yes | Enrollment record details | `TESTED / READY` | Academic Management |
+| `POST` | `/api/v1/enrollments` | `ADMIN` | Yes | Enroll student in section with capacity checks | `TESTED / READY` | Academic Management |
+| `PUT` | `/api/v1/enrollments/:id` | `ADMIN` | Yes | Update enrollment status / drop student | `TESTED / READY` | Academic Management |
+| `DELETE` | `/api/v1/enrollments/:id` | `ADMIN` | Yes | Delete enrollment (attendance guarded) | `TESTED / READY` | Academic Management |
+| `GET` | `/api/v1/sections/:id/roster` | Authenticated | Yes | Section student roster with enrollment stats | `TESTED / READY` | Academic Management |
+| `GET` | `/api/v1/admin/reports/attendance` | `ADMIN` | Yes | Institutional semester attendance report | `TESTED / READY` | Admin Reports |
+| `GET` | `/api/v1/attendance/report` | Authenticated | Yes | Attendance analytics report (alias) | `TESTED / READY` | Attendance Management |
+| `GET` | `/api/v1/attendance/faculty/:facultyId` | Authenticated | Yes | Faculty session & summary attendance | `TESTED / READY` | Faculty Attendance |
 | `*` | `/api/v1/library/*` | - | - | Library management | `OUT_OF_SCOPE / BACKEND_MISSING` | N/A |
 | `*` | `/api/v1/visitors/*` | - | - | Visitor management | `OUT_OF_SCOPE / BACKEND_MISSING` | N/A |
