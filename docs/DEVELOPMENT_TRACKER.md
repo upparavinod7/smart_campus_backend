@@ -11,14 +11,14 @@
 
 | Metric | Count |
 | :--- | :--- |
-| **Total Identified Features** | 14 |
-| **Backend Feature Implementation** | 14 / 14 Completed |
-| **Backend Regression Test Suite** | 100 / 100 Passing (0 failed, 0 skipped, duration ~1.8s) |
+| **Total Identified Features** | 15 |
+| **Backend Feature Implementation** | 15 / 15 Completed |
+| **Backend Regression Test Suite** | 101 / 101 Passing (0 failed, 0 skipped, duration ~2.5s) |
 | **Academic Hierarchy Implementation** | Complete (School ➔ Department ➔ Program ➔ Batch ➔ Section ➔ Timetable ➔ Class Session ➔ Attendance Records) |
-| **UI Stabilization & Error Resolution** | Complete (FEAT-014: Timetable slot validation & date handling, cascading filter scoping, heading standardization, table text wrapping, responsive modals) |
-| **Backend Branch** | `fix/academic-timetable-ui-stabilization` @ `7bde9e0` (Pushed to origin) |
-| **Frontend Branch** | `fix/academic-timetable-ui-stabilization` @ `a91a934` (Pushed to origin) |
-| **Frontend Build & Lint Quality** | 0 lint errors, production Vite build passed (209ms) |
+| **UI Stabilization & Bug Resolution** | Complete (FEAT-015: HTML error sanitization, 404 JSON fallback, application confirmation modal replacing window.confirm, academic tabs responsive layout, CRUD verification) |
+| **Backend Branch** | `fix/academic-crud-api-errors` @ `9e8563c` |
+| **Frontend Branch** | `fix/academic-crud-api-errors` @ `2f72300` |
+| **Frontend Build & Lint Quality** | 0 lint errors, production Vite build passed (247ms) |
 | **Cross-Role E2E Persona QA** | 100% Verified (Admin, Faculty, Student authentic workflows, 5-tier filtering & security barriers) |
 | **Next Recommended Milestone** | RELEASE TO MAIN (Consolidate stabilization branches into main for both backend and frontend) |
 
@@ -570,6 +570,47 @@
 - **Merge Status**: Open (Ready for user review and PR merge)
 - **Blockers**: None
 - **Last Verified Update**: 2026-10-09T11:15:00+05:30
+
+---
+
+### `FEAT-015`: Smart Campus ERP Final UI Bug Fixes, CRUD Verification & Release Readiness
+- **Feature ID**: `FEAT-015`
+- **Feature Name**: Smart Campus ERP Final UI Bug Fixes, CRUD Verification & Release Readiness
+- **Module**: Academic CRUD Operations, Error Sanitization, Application Confirmation Modals & Release Hardening
+- **Backend Status**: `TESTED`
+- **Frontend Status**: `TESTED`
+- **Issues Resolved & Root Cause Diagnostics**:
+  1. **Raw HTML Error Banners in UI (`Cannot DELETE /api/v1/...`)**:
+     - *Root Cause*: Express default 404/500 handler returned HTML error documents (`<!DOCTYPE html><html lang="en">...<pre>Cannot DELETE /api/v1/course-offerings/3</pre>`) when endpoints were unhandled or routes mismatched. The frontend `apiClient` parsed non-JSON responses as `{ message: await response.text() }` and threw the entire raw HTML document as `error.message`, which was displayed in `<Alert>` banners.
+     - *Resolution*:
+       - **Backend**: Implemented 404 JSON fallback middleware in `src/routes/index.js` and global error handling middleware in `src/app.js` to ensure ALL errors and unhandled paths under `/api/v1` return structured JSON `{ success: false, message: ... }` with `Content-Type: application/json` (never raw HTML).
+       - **Frontend**: Sanitized response parser in `src/api/client.js` to extract clean human-readable error text from `<pre>`/`<title>` tags, strip raw HTML, and provide helpful fallback messages based on HTTP status codes.
+  2. **Route Aliases & Delete Lifecycle Coverage**:
+     - *Root Cause*: Routes for `/timetable_slots`, `/academics/timetable`, `/academics/sections`, and `/course_offerings` lacked consistent aliases, and automated tests lacked comprehensive regression coverage for timetable deletion and unhandled 404 JSON responses.
+     - *Resolution*: Expanded route aliases in `src/routes/index.js` and added automated test suite in `src/test/api.test.js` verifying RBAC (401/403), 404 JSON responses, and alias routing (101/101 tests passing).
+  3. **Native `window.confirm()` Browser Popups**:
+     - *Root Cause*: Academic CRUD operations (Schools, Programs, Batches, Subjects, Course Offerings, Sections, Timetable Slots) and attendance session finalization used native browser dialogs `window.confirm()`.
+     - *Resolution*: Built reusable `ConfirmDialog.jsx` component with accessible keyboard navigation (Esc to cancel), item details card, distinct action variants (danger, warning, primary), and loading spinner. Replaced all 7 academic delete/deactivate confirmations in `AcademicsManagementView.jsx` and session finalization in `FacultySessionsView.jsx`.
+  4. **Academic Tabs Horizontal Overflow & Crowded Header**:
+     - *Root Cause*: Tabs navigation used overly verbose labels (e.g. `Academic Structure (1 Schools / 1 Programs / 1 Batches)` taking 65+ chars) and shared a non-wrapping flex row with the contextual action button, causing horizontal scrollbars and button clipping.
+     - *Resolution*: Replaced verbose text with compact tab titles and pill count badges, wrapped tabs in a responsive scrollable `<nav>` container with `min-w-0 flex-1`, and aligned the primary contextual action button cleanly on the right with `shrink-0`.
+- **Files Modified**:
+  - Backend: `src/app.js`, `src/routes/index.js`, `src/test/api.test.js`
+  - Frontend: `src/api/client.js`, `src/components/common/ConfirmDialog.jsx` (New), `src/components/admin/AcademicsManagementView.jsx`, `src/components/faculty/FacultySessionsView.jsx`
+- **Backend Branch**: `fix/academic-crud-api-errors`
+- **Backend Commit SHA**: `9e8563c`
+- **Frontend Branch**: `fix/academic-crud-api-errors`
+- **Frontend Commit SHA**: `2f72300`
+- **Backend Test Results**: 101 / 101 passing tests (`npm test`, 0 failed, 0 skipped, duration ~2.5s)
+- **Frontend Build/Test Results**: ESLint 0 errors / 0 warnings (`npm run lint`), Vite production build succeeded in 247ms (`npm run build`)
+- **Backend Push Status**: `READY_TO_PUSH`
+- **Frontend Push Status**: `READY_TO_PUSH`
+- **Pull Request URLs**:
+  - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/fix/academic-crud-api-errors`
+  - Frontend: `https://github.com/sahayaglancy35-blip/smart_campus_frontend/pull/new/fix/academic-crud-api-errors`
+- **Merge Status**: Open (Ready for user review and PR merge)
+- **Blockers**: None
+- **Last Verified Update**: 2026-10-09T12:10:00+05:30
 
 ---
 
