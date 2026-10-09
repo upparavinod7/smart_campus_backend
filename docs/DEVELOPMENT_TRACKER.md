@@ -11,15 +11,16 @@
 
 | Metric | Count |
 | :--- | :--- |
-| **Total Identified Features** | 13 |
-| **Backend Feature Implementation** | 13 / 13 Completed |
-| **Backend Regression Test Suite** | 99 / 99 Passing (0 failed, 0 skipped, line coverage 77.17%, functions 91.24%) |
+| **Total Identified Features** | 14 |
+| **Backend Feature Implementation** | 14 / 14 Completed |
+| **Backend Regression Test Suite** | 100 / 100 Passing (0 failed, 0 skipped, duration ~1.8s) |
 | **Academic Hierarchy Implementation** | Complete (School ➔ Department ➔ Program ➔ Batch ➔ Section ➔ Timetable ➔ Class Session ➔ Attendance Records) |
-| **Backend Integration Branch** | `feature/hierarchical-timetable-attendance` @ `291610c` (Pushed to origin) |
-| **Frontend Integration Branch** | `feature/hierarchical-timetable-attendance` @ `70a4bd6` (Pushed to origin) |
-| **Frontend Build & Lint Quality** | 0 lint errors, production Vite build passed (292ms) |
+| **UI Stabilization & Error Resolution** | Complete (FEAT-014: Timetable slot validation & date handling, cascading filter scoping, heading standardization, table text wrapping, responsive modals) |
+| **Backend Branch** | `fix/academic-timetable-ui-stabilization` @ `7bde9e0` (Pushed to origin) |
+| **Frontend Branch** | `fix/academic-timetable-ui-stabilization` @ `a91a934` (Pushed to origin) |
+| **Frontend Build & Lint Quality** | 0 lint errors, production Vite build passed (209ms) |
 | **Cross-Role E2E Persona QA** | 100% Verified (Admin, Faculty, Student authentic workflows, 5-tier filtering & security barriers) |
-| **Next Recommended Milestone** | RELEASE TO MAIN (Consolidate `feature/hierarchical-timetable-attendance` into main for both backend and frontend) |
+| **Next Recommended Milestone** | RELEASE TO MAIN (Consolidate stabilization branches into main for both backend and frontend) |
 
 ---
 
@@ -527,6 +528,48 @@
 - **Merge Status**: Open (Ready for user review and merge)
 - **Blockers**: None
 - **Last Verified Update**: 2026-10-09T10:15:00+05:30
+
+---
+
+### `FEAT-014`: Smart Campus ERP UI Stabilization, Error Resolution & Professional UI/UX Refinement
+- **Feature ID**: `FEAT-014`
+- **Feature Name**: Smart Campus ERP UI Stabilization, Error Resolution & Professional UI/UX Refinement
+- **Module**: UI/UX Stabilization, Timetable Contract Alignment & Academic Hierarchy Filters
+- **Backend Status**: `TESTED`
+- **Frontend Status**: `PUSHED`
+- **Issues Resolved & Root Cause Diagnostics**:
+  1. **Timetable Slot Allocation Form 400 Error**:
+     - *Root Cause*: Frontend `slotForm` state and Allocate Slot modal omitted the `effective_from` field, which is a strictly non-null `DATE` column in MySQL and required by the backend API.
+     - *Resolution*: Exposed `effective_from` (defaulted to today `YYYY-MM-DD`) and optional `effective_to` in form state and modal; added date normalization and format validation on backend.
+  2. **Cascading Filter Hierarchy Inconsistency**:
+     - *Root Cause*: When `filterProgram` was `"ALL"`, batches from unrelated schools/departments leaked into the Batch dropdown. Similarly, when `filterBatch` was `"ALL"`, sections across other batches leaked into the Section dropdown.
+     - *Resolution*: Scoped `filteredBatches` to only programs matching the active School/Dept filter, and scoped `filteredSections` to only batches matching active ancestor hierarchy.
+  3. **Stacked Duplicate Headings & Redundant Subtitles**:
+     - *Root Cause*: `AppLayout.jsx` rendered a static title/subtitle banner while child views (`AcademicsManagementView`, `DepartmentManagementView`, `FacultyTimetableView`, etc.) rendered redundant `<h2>` blocks with static subtitles.
+     - *Resolution*: Standardized contextual page subtitles via `PAGE_SUBTITLES` in `Dashboard.jsx`, removed duplicate `<h2>` blocks from child views, and unified tab bars with primary action buttons.
+  4. **Horizontally Scrolling Wide Timetable Tables**:
+     - *Root Cause*: `DataTable.jsx` applied unconditional `whitespace-nowrap` on all table cells, forcing wide text columns to stretch beyond the viewport.
+     - *Resolution*: Enhanced `DataTable.jsx` to support column-level text wrapping (`col.wrap`), styled long text cells to wrap naturally, and added empty state reset actions.
+  5. **Cramped Modal Layout & Mobile Overflow**:
+     - *Root Cause*: Allocate Slot modal used `max-w-md` for 7 inputs without grouping or scroll containers.
+     - *Resolution*: Upgraded modal to `max-w-xl` with structured fieldsets (Academic Section, Faculty & Room, Weekly Schedule, Term Validity Window) and scrollable body (`max-h-[90vh] flex flex-col`).
+- **Files Modified**:
+  - Backend: `src/controllers/timetable.controller.js`, `src/test/api.test.js`
+  - Frontend: `src/components/admin/AcademicsManagementView.jsx`, `src/components/admin/DepartmentManagementView.jsx`, `src/components/faculty/FacultyTimetableView.jsx`, `src/components/faculty/FacultySessionsView.jsx`, `src/components/faculty/FacultyAttendanceLogsView.jsx`, `src/components/common/DataTable.jsx`, `src/components/common/Modal.jsx`, `src/components/layout/AppLayout.jsx`, `src/components/Dashboard.jsx`
+- **Backend Branch**: `fix/academic-timetable-ui-stabilization`
+- **Backend Commit SHA**: `7bde9e0`
+- **Frontend Branch**: `fix/academic-timetable-ui-stabilization`
+- **Frontend Commit SHA**: `a91a934`
+- **Backend Test Results**: 100 / 100 passing tests (`npm test`, 0 failed, 0 skipped, duration ~1.8s)
+- **Frontend Build/Test Results**: ESLint 0 errors / 0 warnings (`npm run lint`), Vite production build succeeded in 209ms (`npm run build`)
+- **Backend Push Status**: `PUSHED`
+- **Frontend Push Status**: `PUSHED`
+- **Pull Request URLs**:
+  - Backend: `https://github.com/upparavinod7/smart_campus_backend/pull/new/fix/academic-timetable-ui-stabilization`
+  - Frontend: `https://github.com/sahayaglancy35-blip/smart_campus_frontend/pull/new/fix/academic-timetable-ui-stabilization`
+- **Merge Status**: Open (Ready for user review and PR merge)
+- **Blockers**: None
+- **Last Verified Update**: 2026-10-09T11:15:00+05:30
 
 ---
 
