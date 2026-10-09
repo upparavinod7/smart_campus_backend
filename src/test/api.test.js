@@ -3096,6 +3096,674 @@ test("FEAT-015 Release Verification: Academic DELETE RBAC, 404 JSON Fallback, an
   assert.equal(secAlias.status, 200);
 });
 
+test("Academic Years: RBAC, Validations, Duplicate Detection, Full Lifecycle, and Safeties", async () => {
+  // 1. Auth & RBAC
+  const noTokenRes = await fetch(`${baseUrl}/academic-years`);
+  assert.equal(noTokenRes.status, 401);
+
+  const studentPostRes = await fetch(`${baseUrl}/academic-years`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ label: "2098-99", start_date: "2098-08-01", end_date: "2099-05-31" }),
+  });
+  assert.equal(studentPostRes.status, 403);
+
+  // 2. Validations
+  const missingLabelRes = await fetch(`${baseUrl}/academic-years`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ start_date: "2098-08-01", end_date: "2099-05-31" }),
+  });
+  assert.equal(missingLabelRes.status, 400);
+
+  const invalidDatesRes = await fetch(`${baseUrl}/academic-years`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ label: "2098-99", start_date: "2099-05-31", end_date: "2098-08-01" }),
+  });
+  assert.equal(invalidDatesRes.status, 400);
+
+  // 3. Create Valid Academic Year
+  const testLabel = "2098-99";
+  const createRes = await fetch(`${baseUrl}/academic-years`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ label: testLabel, start_date: "2098-08-01", end_date: "2099-05-31" }),
+  });
+  assert.equal(createRes.status, 201);
+  const createdBody = await createRes.json();
+  assert.equal(createdBody.success, true);
+  assert.equal(createdBody.data.label, testLabel);
+  const createdYearId = createdBody.data.academic_year_id;
+
+  // 4. Duplicate Label Detection (409)
+  const dupRes = await fetch(`${baseUrl}/academic-years`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ label: testLabel, start_date: "2098-08-01", end_date: "2099-05-31" }),
+  });
+  assert.equal(dupRes.status, 409);
+
+  // 5. List and Aliases
+  const listRes = await fetch(`${baseUrl}/academic-years`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(listRes.status, 200);
+  const listBody = await listRes.json();
+  assert.ok(listBody.data.some((y) => y.academic_year_id === createdYearId));
+
+  const aliasRes = await fetch(`${baseUrl}/academics/years`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(aliasRes.status, 200);
+
+  // 6. GetById
+  const getByIdRes = await fetch(`${baseUrl}/academic-years/${createdYearId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(getByIdRes.status, 200);
+  const getByIdBody = await getByIdRes.json();
+  assert.equal(getByIdBody.data.academic_year_id, createdYearId);
+  assert.ok(Array.isArray(getByIdBody.data.terms));
+
+  // 7. Update
+  const updateRes = await fetch(`${baseUrl}/academic-years/${createdYearId}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ label: "2098-99", start_date: "2098-08-15", end_date: "2099-06-15" }),
+  });
+  assert.equal(updateRes.status, 200);
+
+  // 8. Relational Delete Safeguard: Seeded Year 1 has terms/batches
+  const safeguardRes = await fetch(`${baseUrl}/academic-years/1`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(safeguardRes.status, 409);
+
+  // 9. Delete Created Year
+  const deleteRes = await fetch(`${baseUrl}/academic-years/${createdYearId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(deleteRes.status, 200);
+
+  // Verify 404 after deletion
+  const verifyDeleted = await fetch(`${baseUrl}/academic-years/${createdYearId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(verifyDeleted.status, 404);
+});
+
+test("Academic Terms: RBAC, Validation, Unique Term Constraint, and Offerings Safeties", async () => {
+  // 1. Auth & RBAC
+  const noTokenRes = await fetch(`${baseUrl}/academic-terms`);
+  assert.equal(noTokenRes.status, 401);
+
+  const studentPostRes = await fetch(`${baseUrl}/academic-terms`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ academic_year_id: 1, term_type: "SUMMER", start_date: "2025-06-01", end_date: "2025-07-31" }),
+  });
+  assert.equal(studentPostRes.status, 403);
+
+  // 2. Validations
+  const invalidTypeRes = await fetch(`${baseUrl}/academic-terms`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ academic_year_id: 1, term_type: "INVALID_TERM", start_date: "2025-06-01", end_date: "2025-07-31" }),
+  });
+  assert.equal(invalidTypeRes.status, 400);
+
+  const invalidYearRes = await fetch(`${baseUrl}/academic-terms`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ academic_year_id: 999999, term_type: "ODD", start_date: "2025-06-01", end_date: "2025-07-31" }),
+  });
+  assert.equal(invalidYearRes.status, 400);
+
+  // 3. Duplicate Term in Academic Year (Year 1 already has 'ODD' term in seed)
+  const dupTermRes = await fetch(`${baseUrl}/academic-terms`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ academic_year_id: 1, term_type: "ODD", start_date: "2023-08-01", end_date: "2023-12-31" }),
+  });
+  assert.equal(dupTermRes.status, 409);
+
+  // 4. Create Temporary Academic Year for Term Lifecycle Test
+  const tempYearRes = await fetch(`${baseUrl}/academic-years`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ label: "2096-97", start_date: "2096-08-01", end_date: "2097-07-31" }),
+  });
+  assert.equal(tempYearRes.status, 201);
+  const tempYearBody = await tempYearRes.json();
+  const tempYearId = tempYearBody.data.academic_year_id;
+
+  // 5. Create Term in Temporary Year
+  const createTermRes = await fetch(`${baseUrl}/academic-terms`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ academic_year_id: tempYearId, term_type: "SUMMER", start_date: "2097-06-01", end_date: "2097-07-31" }),
+  });
+  assert.equal(createTermRes.status, 201);
+  const createdTermBody = await createTermRes.json();
+  const createdTermId = createdTermBody.data.term_id;
+
+  // 6. List and Aliases
+  const listTermsRes = await fetch(`${baseUrl}/academic-terms?academic_year_id=${tempYearId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(listTermsRes.status, 200);
+  const listTermsBody = await listTermsRes.json();
+  assert.equal(listTermsBody.data.length, 1);
+  assert.equal(listTermsBody.data[0].term_type, "SUMMER");
+
+  const termsAliasRes = await fetch(`${baseUrl}/academics/terms`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(termsAliasRes.status, 200);
+
+  // 7. GetById
+  const getTermRes = await fetch(`${baseUrl}/academic-terms/${createdTermId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(getTermRes.status, 200);
+
+  // 8. Relational Delete Safeguard: Seeded Term 1 has course offerings
+  const termSafeguardRes = await fetch(`${baseUrl}/academic-terms/1`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(termSafeguardRes.status, 409);
+
+  // 9. Delete Created Term & Cleanup Temporary Year
+  const deleteTermRes = await fetch(`${baseUrl}/academic-terms/${createdTermId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(deleteTermRes.status, 200);
+
+  const deleteTempYear = await fetch(`${baseUrl}/academic-years/${tempYearId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(deleteTempYear.status, 200);
+});
+
+test("Enrollments: RBAC, Capacity Enforcement, Duplicates, and Section Roster Lifecycle", async () => {
+  // 1. Auth & RBAC
+  const noTokenRes = await fetch(`${baseUrl}/enrollments`);
+  assert.equal(noTokenRes.status, 401);
+
+  const studentPostRes = await fetch(`${baseUrl}/enrollments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ student_id: 1, section_id: 1 }),
+  });
+  assert.equal(studentPostRes.status, 403);
+
+  // 2. Validation: Non-existent student / section
+  const invalidStudentRes = await fetch(`${baseUrl}/enrollments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ student_id: 999999, section_id: 1 }),
+  });
+  assert.equal(invalidStudentRes.status, 400);
+
+  const invalidSectionRes = await fetch(`${baseUrl}/enrollments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ student_id: 1, section_id: 999999 }),
+  });
+  assert.equal(invalidSectionRes.status, 400);
+
+  // 3. Create a test section with strict capacity max_strength = 1
+  const testSecRes = await fetch(`${baseUrl}/sections`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      offering_id: 1,
+      section_code: "TEST-CAP",
+      max_strength: 1,
+    }),
+  });
+  assert.equal(testSecRes.status, 201);
+  const testSecBody = await testSecRes.json();
+  const testSecId = testSecBody.data.section_id;
+
+  // 4. Enroll Student 1 -> Success 201
+  const enroll1Res = await fetch(`${baseUrl}/enrollments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      student_id: 1,
+      section_id: testSecId,
+      registration_type: "REGULAR",
+    }),
+  });
+  assert.equal(enroll1Res.status, 201);
+  const enroll1Body = await enroll1Res.json();
+  const enrollment1Id = enroll1Body.data.enrollment_id;
+
+  // 5. Duplicate Enrollment Detection -> 409
+  const dupEnrollRes = await fetch(`${baseUrl}/enrollments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      student_id: 1,
+      section_id: testSecId,
+    }),
+  });
+  assert.equal(dupEnrollRes.status, 409);
+
+  // 6. Capacity Constraint Enforcement: Student 2 cannot enroll (capacity: 1) -> 400
+  const capExceededRes = await fetch(`${baseUrl}/enrollments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      student_id: 2,
+      section_id: testSecId,
+    }),
+  });
+  assert.equal(capExceededRes.status, 400);
+  const capBody = await capExceededRes.json();
+  assert.ok(capBody.message.includes("capacity"));
+
+  // 7. Section Roster Endpoint (/sections/:id/roster)
+  const rosterRes = await fetch(`${baseUrl}/sections/${testSecId}/roster`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(rosterRes.status, 200);
+  const rosterBody = await rosterRes.json();
+  assert.equal(rosterBody.data.total_enrolled, 1);
+  assert.equal(rosterBody.data.active_enrolled, 1);
+  assert.equal(rosterBody.data.students[0].student_id, 1);
+
+  // 8. Update Enrollment Status to DROPPED -> Capacity frees up!
+  const dropRes = await fetch(`${baseUrl}/enrollments/${enrollment1Id}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ status: "DROPPED" }),
+  });
+  assert.equal(dropRes.status, 200);
+
+  // Roster should now reflect active_enrolled = 0
+  const rosterAfterDrop = await fetch(`${baseUrl}/sections/${testSecId}/students`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(rosterAfterDrop.status, 200);
+  const rosterDropBody = await rosterAfterDrop.json();
+  assert.equal(rosterDropBody.data.active_enrolled, 0);
+
+  // 9. Student 2 can now enroll because active count is 0
+  const enroll2Res = await fetch(`${baseUrl}/enrollments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      student_id: 2,
+      section_id: testSecId,
+    }),
+  });
+  assert.equal(enroll2Res.status, 201);
+  const enroll2Body = await enroll2Res.json();
+  const enrollment2Id = enroll2Body.data.enrollment_id;
+
+  // 10. Cleanup created test enrollments & section
+  const delEnr1 = await fetch(`${baseUrl}/enrollments/${enrollment1Id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(delEnr1.status, 200);
+
+  const delEnr2 = await fetch(`${baseUrl}/enrollments/${enrollment2Id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(delEnr2.status, 200);
+
+  const delSec = await fetch(`${baseUrl}/sections/${testSecId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(delSec.status, 200);
+});
+
+test("Semester-Specific Timetable Engine: Isolation, Joins, Filters, and Student Enrollment Filter", async () => {
+  // 1. Query Timetable with Admin Token
+  const res = await fetch(`${baseUrl}/timetable`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.ok(body.data.length > 0);
+
+  const firstSlot = body.data[0];
+  assert.ok(firstSlot.term_id !== undefined, "Timetable slot must include term_id");
+  assert.ok(firstSlot.term_type !== undefined, "Timetable slot must include term_type");
+  assert.ok(firstSlot.academic_year_id !== undefined, "Timetable slot must include academic_year_id");
+  assert.ok(firstSlot.academic_year_label !== undefined, "Timetable slot must include academic_year_label");
+
+  // 2. Semester Filter: querying term_id = 1 strictly isolates to term 1 slots
+  const term1Res = await fetch(`${baseUrl}/timetable?term_id=1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(term1Res.status, 200);
+  const term1Body = await term1Res.json();
+  for (const slot of term1Body.data) {
+    assert.equal(slot.term_id, 1, "Slot must strictly belong to term 1");
+  }
+
+  // 3. Querying non-existent / empty term strictly returns 0 slots (no leaks)
+  const emptyTermRes = await fetch(`${baseUrl}/timetable?term_id=99999`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(emptyTermRes.status, 200);
+  const emptyTermBody = await emptyTermRes.json();
+  assert.equal(emptyTermBody.count, 0);
+
+  // 4. Student-based timetable filter: query timetable for student_id = 1
+  const studentSlotsRes = await fetch(`${baseUrl}/timetable?student_id=1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(studentSlotsRes.status, 200);
+  const studentSlotsBody = await studentSlotsRes.json();
+  assert.ok(Array.isArray(studentSlotsBody.data));
+});
+
+test("Student Portal: Strict Semester Isolation Across Courses, Timetable, and Attendance", async () => {
+  // 1. Student Courses with term_id filter
+  const allCoursesRes = await fetch(`${baseUrl}/student/me/courses`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  assert.equal(allCoursesRes.status, 200);
+  const allCoursesBody = await allCoursesRes.json();
+
+  if (allCoursesBody.data.length > 0) {
+    const course = allCoursesBody.data[0];
+    assert.ok(course.term_id !== undefined, "Course must expose term_id");
+    assert.ok(course.term_type !== undefined, "Course must expose term_type");
+    assert.ok(course.academic_year_label !== undefined, "Course must expose academic_year_label");
+
+    // Filter by that specific term
+    const termCoursesRes = await fetch(`${baseUrl}/student/me/courses?term_id=${course.term_id}`, {
+      headers: { Authorization: `Bearer ${studentToken}` },
+    });
+    assert.equal(termCoursesRes.status, 200);
+    const termCoursesBody = await termCoursesRes.json();
+    for (const c of termCoursesBody.data) {
+      assert.equal(c.term_id, course.term_id, "Courses must strictly belong to requested term");
+    }
+  }
+
+  // 2. Querying non-existent term returns 0 courses (no leaks)
+  const emptyCoursesRes = await fetch(`${baseUrl}/student/me/courses?term_id=99999`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  assert.equal(emptyCoursesRes.status, 200);
+  const emptyCoursesBody = await emptyCoursesRes.json();
+  assert.equal(emptyCoursesBody.count, 0);
+
+  // 3. Student Timetable with semester isolation
+  const ttRes = await fetch(`${baseUrl}/student/me/timetable?term_id=99999`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  assert.equal(ttRes.status, 200);
+  const ttBody = await ttRes.json();
+  assert.equal(ttBody.count, 0, "No timetable slots leaked for non-matching semester");
+
+  // 4. Student Attendance with semester isolation
+  const attRes = await fetch(`${baseUrl}/student/me/attendance?term_id=99999`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  assert.equal(attRes.status, 200);
+  const attBody = await attRes.json();
+  assert.equal(attBody.count, 0, "No attendance records leaked for non-matching semester");
+
+  // 5. Student Dashboard with term_id filter
+  const dashRes = await fetch(`${baseUrl}/student/me/dashboard?term_id=1`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  assert.equal(dashRes.status, 200);
+  const dashBody = await dashRes.json();
+  assert.ok(dashBody.data.profile, "Dashboard must return profile");
+  assert.ok(dashBody.data.attendance, "Dashboard must return attendance metrics");
+});
+
+test("Faculty Portal: Term-Wise Timetable, Courses, Sections, and Attendance Isolation", async () => {
+  // 1. Faculty Timetable with term filter
+  const ttRes = await fetch(`${baseUrl}/faculty/timetable?term_id=1`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  assert.equal(ttRes.status, 200);
+  const ttBody = await ttRes.json();
+  for (const slot of ttBody.data) {
+    assert.equal(slot.term_id, 1, "Slot must strictly belong to term 1");
+  }
+
+  const emptyTTRes = await fetch(`${baseUrl}/faculty/timetable?term_id=99999`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  assert.equal(emptyTTRes.status, 200);
+  const emptyTTBody = await emptyTTRes.json();
+  assert.equal(emptyTTBody.count, 0);
+
+  // 2. Faculty Courses with term filter
+  const coursesRes = await fetch(`${baseUrl}/faculty/courses?term_id=1`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  assert.equal(coursesRes.status, 200);
+  const coursesBody = await coursesRes.json();
+  for (const course of coursesBody.data) {
+    assert.equal(course.term_id, 1);
+  }
+
+  // 3. Faculty Sections with term filter
+  const secRes = await fetch(`${baseUrl}/faculty/sections?term_id=1`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  assert.equal(secRes.status, 200);
+  const secBody = await secRes.json();
+  for (const s of secBody.data) {
+    assert.equal(s.term_id, 1);
+  }
+
+  // 4. Faculty Attendance Summary with term filter
+  const summRes = await fetch(`${baseUrl}/faculty/attendance/summary?term_id=1`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  assert.equal(summRes.status, 200);
+  const summBody = await summRes.json();
+  assert.ok(summBody.data.summary, "Must return attendance summary");
+});
+
+test("Admin Semester-Wise Reports: Comprehensive Aggregated Attendance and Breakdown", async () => {
+  // 1. Admin Attendance Report without filter
+  const reportRes = await fetch(`${baseUrl}/admin/reports/attendance`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(reportRes.status, 200);
+  const reportBody = await reportRes.json();
+  assert.equal(reportBody.success, true);
+  assert.ok(reportBody.data.summary !== undefined, "Report must include summary");
+  assert.ok(Array.isArray(reportBody.data.sections_breakdown), "Report must include sections_breakdown");
+
+  // 2. Admin Attendance Report with term_id filter
+  const termReportRes = await fetch(`${baseUrl}/admin/reports/attendance?term_id=1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(termReportRes.status, 200);
+  const termReportBody = await termReportRes.json();
+  for (const section of termReportBody.data.sections_breakdown) {
+    assert.equal(section.term_id, 1, "Breakdown must strictly belong to term 1");
+  }
+
+  // 3. Alias /attendance/report
+  const aliasReportRes = await fetch(`${baseUrl}/attendance/report`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(aliasReportRes.status, 200);
+
+  // 4. Student Attendance Summary by Term: /attendance/student/:id/summary?term_id=1
+  const studentSummRes = await fetch(`${baseUrl}/attendance/student/1/summary?term_id=1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(studentSummRes.status, 200);
+  const studentSummBody = await studentSummRes.json();
+  assert.ok(studentSummBody.data.summary);
+
+  // 5. Faculty attendance aliases /attendance/faculty/:id and /attendance/staff/:id
+  const facAttRes = await fetch(`${baseUrl}/attendance/faculty/1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(facAttRes.status, 200);
+
+  const staffAttRes = await fetch(`${baseUrl}/attendance/staff/1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(staffAttRes.status, 200);
+
+  // 6. Report with specific filters (dates, department, section, subject)
+  const filteredReportRes = await fetch(
+    `${baseUrl}/admin/reports/attendance?department_id=1&section_id=1&subject_id=1&start_date=2020-01-01&end_date=2030-12-31`,
+    { headers: { Authorization: `Bearer ${adminToken}` } },
+  );
+  assert.equal(filteredReportRes.status, 200);
+});
+
+test("Enrollments & Academic Terms: Advanced Filtering, Updates, and Relational Safeguards", async () => {
+  // 1. Enrollments Query with comprehensive filters
+  const listEnrRes = await fetch(
+    `${baseUrl}/enrollments?status=REGISTERED&registration_type=REGULAR&term_id=1&search=Student`,
+    { headers: { Authorization: `Bearer ${adminToken}` } },
+  );
+  assert.equal(listEnrRes.status, 200);
+  const listEnrBody = await listEnrRes.json();
+  assert.ok(Array.isArray(listEnrBody.data));
+
+  // 2. Enrollments GetById for seeded enrollment 1
+  const getEnrRes = await fetch(`${baseUrl}/enrollments/1`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(getEnrRes.status, 200);
+  const getEnrBody = await getEnrRes.json();
+  assert.equal(getEnrBody.data.enrollment_id, 1);
+  assert.ok(getEnrBody.data.student_name);
+
+  // 3. Enrollment Update Validation
+  const invalidStatusRes = await fetch(`${baseUrl}/enrollments/1`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ status: "INVALID_STATUS" }),
+  });
+  assert.equal(invalidStatusRes.status, 400);
+
+  const invalidTypeRes = await fetch(`${baseUrl}/enrollments/1`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ registration_type: "INVALID_REG" }),
+  });
+  assert.equal(invalidTypeRes.status, 400);
+
+  // 4. Delete Enrollment Safeguard: Seeded enrollment 1 has attendance records
+  const delSafeguardRes = await fetch(`${baseUrl}/enrollments/1`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(delSafeguardRes.status, 409);
+  const delSafeBody = await delSafeguardRes.json();
+  assert.ok(delSafeBody.message.includes("attendance record"));
+
+  // 5. Academic Terms Update & Search
+  const searchTermsRes = await fetch(`${baseUrl}/academic-terms?search=ODD`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(searchTermsRes.status, 200);
+
+  // 6. Academic Term Not Found
+  const termNotFoundRes = await fetch(`${baseUrl}/academic-terms/999999`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(termNotFoundRes.status, 404);
+
+  // 7. Academic Year Search with Year
+  const yearSearchRes = await fetch(`${baseUrl}/academic-years?start_year=2024&search=2024`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(yearSearchRes.status, 200);
+});
+
+
+
 
 
 

@@ -13,6 +13,8 @@ const getSections = async (req, res) => {
       department_id,
       school_id,
       section_code,
+      term_id,
+      academic_year_id,
       search,
       q,
     } = req.query;
@@ -24,6 +26,16 @@ const getSections = async (req, res) => {
     if (offering_id) {
       conditions.push("sec.offering_id = ?");
       params.push(Number(offering_id));
+    }
+
+    if (term_id) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(term_id));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
     }
 
     if (batch_id) {
@@ -572,10 +584,98 @@ const deleteSection = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/sections/:id/roster (or /sections/:id/students)
+ * Retrieve all students enrolled in a section with status and attendance count.
+ */
+const getSectionRoster = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [sections] = await pool.query(
+      `
+      SELECT
+          sec.section_id,
+          sec.section_code,
+          sec.max_strength,
+          sec.batch_id,
+          bt.label AS batch_label,
+          p.programme_id,
+          p.name AS programme_name,
+          co.offering_id,
+          sub.subject_id,
+          sub.subject_code,
+          sub.name AS subject_name,
+          at.term_id,
+          at.term_type,
+          ay.label AS academic_year_label
+      FROM sections sec
+      JOIN course_offerings co ON sec.offering_id = co.offering_id
+      JOIN subjects sub ON co.subject_id = sub.subject_id
+      JOIN academic_terms at ON co.term_id = at.term_id
+      JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      WHERE sec.section_id = ?
+      LIMIT 1
+      `,
+      [id],
+    );
+
+    if (sections.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Section not found",
+      });
+    }
+
+    const [students] = await pool.query(
+      `
+      SELECT
+          e.enrollment_id,
+          e.student_id,
+          s.register_no,
+          s.full_name AS student_name,
+          s.email AS student_email,
+          s.phone AS student_phone,
+          s.status AS student_status,
+          e.registration_type,
+          e.status AS enrollment_status,
+          e.registered_on,
+          e.dropped_on,
+          (SELECT COUNT(*) FROM attendance_records ar WHERE ar.enrollment_id = e.enrollment_id) AS total_attendance_marked
+      FROM enrollments e
+      JOIN students s ON e.student_id = s.student_id
+      WHERE e.section_id = ?
+      ORDER BY s.register_no ASC, s.full_name ASC
+      `,
+      [id],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Section roster retrieved successfully",
+      data: {
+        section: sections[0],
+        total_enrolled: students.length,
+        active_enrolled: students.filter((s) => s.enrollment_status === "REGISTERED").length,
+        students,
+      },
+    });
+  } catch (error) {
+    console.error("Get section roster error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
 module.exports = {
   getSections,
   getSectionById,
   createSection,
   updateSection,
   deleteSection,
+  getSectionRoster,
 };

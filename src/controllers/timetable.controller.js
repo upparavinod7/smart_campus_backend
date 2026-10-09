@@ -159,11 +159,18 @@ const getTimetableSlots = async (req, res) => {
       programme_id,
       department_id,
       school_id,
+      term_id,
+      semester,
+      academic_year_id,
+      term_type,
+      student_id,
       is_active,
     } = req.query;
 
     const conditions = [];
     const params = [];
+
+    const effectiveTermId = term_id || semester;
 
     if (day_of_week !== undefined && day_of_week !== "") {
       conditions.push("ts.day_of_week = ?");
@@ -193,6 +200,28 @@ const getTimetableSlots = async (req, res) => {
     if (offering_id) {
       conditions.push("sec.offering_id = ?");
       params.push(Number(offering_id));
+    }
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    if (term_type) {
+      conditions.push("at.term_type = ?");
+      params.push(term_type.toUpperCase());
+    }
+
+    if (student_id) {
+      conditions.push(
+        "EXISTS (SELECT 1 FROM enrollments e WHERE e.section_id = ts.section_id AND e.student_id = ? AND e.status = 'REGISTERED')",
+      );
+      params.push(Number(student_id));
     }
 
     if (batch_id) {
@@ -241,6 +270,14 @@ const getTimetableSlots = async (req, res) => {
           s.name AS school_name,
           s.code AS school_code,
           co.offering_id,
+          co.term_id,
+          at.term_type,
+          at.academic_year_id,
+          ay.label AS academic_year_label,
+          ay.start_date AS academic_year_start,
+          ay.end_date AS academic_year_end,
+          at.start_date AS term_start_date,
+          at.end_date AS term_end_date,
           sub.subject_id,
           sub.subject_code,
           sub.name AS subject_name,
@@ -264,6 +301,8 @@ const getTimetableSlots = async (req, res) => {
       FROM timetable_slots ts
       JOIN sections sec ON ts.section_id = sec.section_id
       JOIN course_offerings co ON sec.offering_id = co.offering_id
+      JOIN academic_terms at ON co.term_id = at.term_id
+      JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
       JOIN subjects sub ON co.subject_id = sub.subject_id
       JOIN faculty f ON ts.faculty_id = f.faculty_id
       JOIN classrooms c ON ts.classroom_id = c.classroom_id
@@ -320,6 +359,14 @@ const getTimetableSlotById = async (req, res) => {
           s.name AS school_name,
           s.code AS school_code,
           co.offering_id,
+          co.term_id,
+          at.term_type,
+          at.academic_year_id,
+          ay.label AS academic_year_label,
+          ay.start_date AS academic_year_start,
+          ay.end_date AS academic_year_end,
+          at.start_date AS term_start_date,
+          at.end_date AS term_end_date,
           sub.subject_id,
           sub.subject_code,
           sub.name AS subject_name,
@@ -343,6 +390,8 @@ const getTimetableSlotById = async (req, res) => {
       FROM timetable_slots ts
       JOIN sections sec ON ts.section_id = sec.section_id
       JOIN course_offerings co ON sec.offering_id = co.offering_id
+      JOIN academic_terms at ON co.term_id = at.term_id
+      JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
       JOIN subjects sub ON co.subject_id = sub.subject_id
       JOIN faculty f ON ts.faculty_id = f.faculty_id
       JOIN classrooms c ON ts.classroom_id = c.classroom_id

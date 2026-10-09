@@ -298,8 +298,17 @@ const getMyFacultyTimetable = async (req, res) => {
       });
     }
 
-    const { day_of_week, classroom_id, section_id, subject_id } = req.query;
+    const {
+      day_of_week,
+      classroom_id,
+      section_id,
+      subject_id,
+      term_id,
+      semester,
+      academic_year_id,
+    } = req.query;
 
+    const effectiveTermId = term_id || semester;
     const conditions = ["ts.faculty_id = ?", "ts.is_active = 1"];
     const params = [faculty.faculty_id];
 
@@ -323,6 +332,16 @@ const getMyFacultyTimetable = async (req, res) => {
       params.push(Number(subject_id));
     }
 
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
     const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const [slots] = await pool.query(
@@ -332,6 +351,10 @@ const getMyFacultyTimetable = async (req, res) => {
           ts.section_id,
           sec.section_code,
           co.offering_id,
+          co.term_id,
+          at.term_type,
+          at.academic_year_id,
+          ay.label AS academic_year_label,
           sub.subject_id,
           sub.subject_code,
           sub.name AS subject_name,
@@ -356,6 +379,8 @@ const getMyFacultyTimetable = async (req, res) => {
       JOIN faculty f ON ts.faculty_id = f.faculty_id
       JOIN sections sec ON ts.section_id = sec.section_id
       JOIN course_offerings co ON sec.offering_id = co.offering_id
+      JOIN academic_terms at ON co.term_id = at.term_id
+      JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
       JOIN subjects sub ON co.subject_id = sub.subject_id
       JOIN classrooms c ON ts.classroom_id = c.classroom_id
       LEFT JOIN blocks b ON c.block_id = b.block_id
@@ -397,6 +422,23 @@ const getMyFacultyCourses = async (req, res) => {
     }
 
     const facultyId = faculty.faculty_id;
+    const { term_id, semester, academic_year_id } = req.query;
+    const effectiveTermId = term_id || semester;
+
+    const conditions = ["(co.coordinator_faculty_id = ? OR ts.faculty_id = ?)"];
+    const params = [facultyId, facultyId, facultyId];
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const [courses] = await pool.query(
       `
@@ -420,11 +462,10 @@ const getMyFacultyCourses = async (req, res) => {
       JOIN subjects sub ON co.subject_id = sub.subject_id
       LEFT JOIN sections sec ON sec.offering_id = co.offering_id
       LEFT JOIN timetable_slots ts ON ts.section_id = sec.section_id AND ts.is_active = 1
-      WHERE co.coordinator_faculty_id = ?
-         OR ts.faculty_id = ?
+      ${whereClause}
       ORDER BY sub.subject_code ASC
       `,
-      [facultyId, facultyId, facultyId],
+      params,
     );
 
     return res.status(200).json({
@@ -459,29 +500,48 @@ const getMyFacultySections = async (req, res) => {
     }
 
     const facultyId = faculty.faculty_id;
+    const { term_id, semester, academic_year_id } = req.query;
+    const effectiveTermId = term_id || semester;
+
+    const conditions = ["(ts.faculty_id = ? OR co.coordinator_faculty_id = ?)"];
+    const params = [facultyId, facultyId];
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const [sections] = await pool.query(
       `
       SELECT DISTINCT
           sec.section_id,
           sec.offering_id,
+          co.term_id,
+          at.term_type,
+          ay.label AS academic_year_label,
           sec.section_code,
           sec.max_strength,
           sub.subject_id,
           sub.subject_code,
           sub.name AS subject_name,
-          at.term_type,
           (SELECT COUNT(*) FROM enrollments e WHERE e.section_id = sec.section_id) AS enrolled_students_count
       FROM sections sec
       JOIN course_offerings co ON sec.offering_id = co.offering_id
       JOIN subjects sub ON co.subject_id = sub.subject_id
       JOIN academic_terms at ON co.term_id = at.term_id
+      JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
       LEFT JOIN timetable_slots ts ON ts.section_id = sec.section_id AND ts.is_active = 1
-      WHERE ts.faculty_id = ?
-         OR co.coordinator_faculty_id = ?
+      ${whereClause}
       ORDER BY sub.subject_code ASC, sec.section_code ASC
       `,
-      [facultyId, facultyId],
+      params,
     );
 
     return res.status(200).json({
@@ -515,8 +575,16 @@ const getMyFacultyAttendanceSessions = async (req, res) => {
       });
     }
 
-    const { session_date, status, slot_id } = req.query;
+    const {
+      session_date,
+      status,
+      slot_id,
+      term_id,
+      semester,
+      academic_year_id,
+    } = req.query;
 
+    const effectiveTermId = term_id || semester;
     const conditions = ["cs.faculty_id = ?"];
     const params = [faculty.faculty_id];
 
@@ -535,6 +603,16 @@ const getMyFacultyAttendanceSessions = async (req, res) => {
       params.push(Number(slot_id));
     }
 
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
     const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const [sessions] = await pool.query(
@@ -550,6 +628,9 @@ const getMyFacultyAttendanceSessions = async (req, res) => {
           c.room_no,
           c.room_type,
           sec.section_code,
+          co.term_id,
+          at.term_type,
+          ay.label AS academic_year_label,
           sub.name AS subject_name,
           sub.subject_code,
           cs.scheduled_start,
@@ -570,6 +651,8 @@ const getMyFacultyAttendanceSessions = async (req, res) => {
       LEFT JOIN timetable_slots ts ON cs.slot_id = ts.slot_id
       LEFT JOIN sections sec ON ts.section_id = sec.section_id
       LEFT JOIN course_offerings co ON sec.offering_id = co.offering_id
+      LEFT JOIN academic_terms at ON co.term_id = at.term_id
+      LEFT JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
       LEFT JOIN subjects sub ON co.subject_id = sub.subject_id
       ${whereClause}
       ORDER BY cs.session_date DESC, cs.session_id DESC
@@ -1243,6 +1326,23 @@ const getMyFacultyAttendanceSummary = async (req, res) => {
     }
 
     const facultyId = faculty.faculty_id;
+    const { term_id, semester, academic_year_id } = req.query;
+    const effectiveTermId = term_id || semester;
+
+    const conditions = ["cs.faculty_id = ?"];
+    const params = [facultyId];
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const [summaryRows] = await pool.query(
       `
@@ -1254,10 +1354,14 @@ const getMyFacultyAttendanceSummary = async (req, res) => {
           COUNT(DISTINCT CASE WHEN ar.status = 'LATE' THEN ar.attendance_id END) AS late_count,
           COUNT(DISTINCT CASE WHEN ar.status = 'ABSENT' THEN ar.attendance_id END) AS absent_count
       FROM class_sessions cs
+      LEFT JOIN timetable_slots ts ON cs.slot_id = ts.slot_id
+      LEFT JOIN sections sec ON ts.section_id = sec.section_id
+      LEFT JOIN course_offerings co ON sec.offering_id = co.offering_id
+      LEFT JOIN academic_terms at ON co.term_id = at.term_id
       LEFT JOIN attendance_records ar ON ar.session_id = cs.session_id
-      WHERE cs.faculty_id = ?
+      ${whereClause}
       `,
-      [facultyId],
+      params,
     );
 
     const s = summaryRows[0] || {};

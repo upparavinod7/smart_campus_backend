@@ -19,6 +19,9 @@ const subjectRoutes = require("./subject.routes");
 const courseOfferingRoutes = require("./courseOffering.routes");
 const sectionRoutes = require("./section.routes");
 const timetableRoutes = require("./timetable.routes");
+const academicYearRoutes = require("./academicYear.routes");
+const academicTermRoutes = require("./academicTerm.routes");
+const enrollmentRoutes = require("./enrollment.routes");
 
 const router = express.Router();
 
@@ -56,6 +59,17 @@ router.use("/academics/programmes", programmeRoutes);
 
 router.use("/batches", batchRoutes);
 router.use("/academics/batches", batchRoutes);
+
+router.use("/academic-years", academicYearRoutes);
+router.use("/academics/years", academicYearRoutes);
+router.use("/academics/academic-years", academicYearRoutes);
+
+router.use("/academic-terms", academicTermRoutes);
+router.use("/academics/terms", academicTermRoutes);
+router.use("/academics/academic-terms", academicTermRoutes);
+
+router.use("/enrollments", enrollmentRoutes);
+router.use("/academics/enrollments", enrollmentRoutes);
 
 router.use("/degrees", degreeRoutes);
 router.use("/academics/degrees", degreeRoutes);
