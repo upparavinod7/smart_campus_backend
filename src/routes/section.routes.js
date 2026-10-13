@@ -6,6 +6,7 @@ const {
   createSection,
   updateSection,
   deleteSection,
+  getSectionRoster,
 } = require("../controllers/section.controller");
 
 const authenticateToken = require("../middleware/auth.middleware");
@@ -18,6 +19,10 @@ router.get("/", authenticateToken, getSections);
 
 // GET /api/v1/sections/:id - Authenticated (all roles)
 router.get("/:id", authenticateToken, getSectionById);
+
+// GET /api/v1/sections/:id/roster and /sections/:id/students - Authenticated
+router.get("/:id/roster", authenticateToken, getSectionRoster);
+router.get("/:id/students", authenticateToken, getSectionRoster);
 
 // POST /api/v1/sections - Admin only
 router.post("/", authenticateToken, authorizeRoles("ADMIN"), createSection);

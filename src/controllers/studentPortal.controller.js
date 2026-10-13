@@ -81,13 +81,43 @@ const getMyProfile = async (req, res) => {
 const getMyAttendance = async (req, res) => {
   try {
     const userId = req.user.user_id;
+    const { term_id, semester, academic_year_id, subject_id } = req.query;
+    const effectiveTermId = term_id || semester;
 
-    const [rows] = await pool.execute(
+    const conditions = [
+      "u.user_id = ?",
+      "u.role = 'STUDENT'",
+      "u.is_active = 1",
+    ];
+    const params = [userId];
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    if (subject_id) {
+      conditions.push("co.subject_id = ?");
+      params.push(Number(subject_id));
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const [rows] = await pool.query(
       `
       SELECT
         ar.attendance_id,
         sub.subject_code,
         sub.name AS subject_name,
+        co.term_id,
+        at.term_type,
+        ay.academic_year_id,
+        ay.label AS academic_year_label,
         cs.session_date,
         ar.status,
         ar.source,
@@ -106,16 +136,18 @@ const getMyAttendance = async (req, res) => {
         ON sec.section_id = ts.section_id
       JOIN course_offerings co
         ON co.offering_id = sec.offering_id
+      JOIN academic_terms at
+        ON co.term_id = at.term_id
+      JOIN academic_years ay
+        ON at.academic_year_id = ay.academic_year_id
       JOIN subjects sub
         ON sub.subject_id = co.subject_id
 
-      WHERE u.user_id = ?
-        AND u.role = 'STUDENT'
-        AND u.is_active = 1
+      ${whereClause}
 
       ORDER BY cs.session_date DESC, ar.marked_at DESC
       `,
-      [userId],
+      params,
     );
 
     return res.status(200).json({
@@ -138,13 +170,36 @@ const getMyAttendance = async (req, res) => {
 const getMyAttendanceSummary = async (req, res) => {
   try {
     const userId = req.user.user_id;
+    const { term_id, semester, academic_year_id } = req.query;
+    const effectiveTermId = term_id || semester;
 
-    const [rows] = await pool.execute(
+    const conditions = [
+      "u.user_id = ?",
+      "u.role = 'STUDENT'",
+      "u.is_active = 1",
+    ];
+    const params = [userId];
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const [rows] = await pool.query(
       `
       SELECT
         sub.subject_id,
         sub.subject_code,
         sub.name AS subject_name,
+        co.term_id,
+        at.term_type,
 
         COUNT(ar.attendance_id) AS total_classes,
 
@@ -185,21 +240,25 @@ const getMyAttendanceSummary = async (req, res) => {
         ON sec.section_id = ts.section_id
       JOIN course_offerings co
         ON co.offering_id = sec.offering_id
+      JOIN academic_terms at
+        ON co.term_id = at.term_id
+      JOIN academic_years ay
+        ON at.academic_year_id = ay.academic_year_id
       JOIN subjects sub
         ON sub.subject_id = co.subject_id
 
-      WHERE u.user_id = ?
-        AND u.role = 'STUDENT'
-        AND u.is_active = 1
+      ${whereClause}
 
       GROUP BY
         sub.subject_id,
         sub.subject_code,
-        sub.name
+        sub.name,
+        co.term_id,
+        at.term_type
 
       ORDER BY sub.subject_code
       `,
-      [userId],
+      params,
     );
 
     const data = rows.map((row) => ({
@@ -233,6 +292,100 @@ const getMyAttendanceSummary = async (req, res) => {
 const getStudentDashboard = async (req, res) => {
   try {
     const userId = req.user.user_id;
+    const { term_id, semester } = req.query;
+    const effectiveTermId = term_id || semester;
+
+    const overallQuery = effectiveTermId
+      ? `
+        SELECT
+          COUNT(ar.attendance_id) AS total_classes,
+          COALESCE(SUM(CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN 1 ELSE 0 END), 0) AS attended_classes,
+          COALESCE(SUM(CASE WHEN ar.status = 'ABSENT' THEN 1 ELSE 0 END), 0) AS absent_classes,
+          COALESCE(
+            ROUND(100.0 * SUM(CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN 1 ELSE 0 END) / NULLIF(COUNT(ar.attendance_id), 0), 2),
+            0
+          ) AS attendance_percentage
+        FROM users u
+        JOIN enrollments e ON e.student_id = u.student_id
+        JOIN sections sec ON sec.section_id = e.section_id
+        JOIN course_offerings co ON co.offering_id = sec.offering_id
+        JOIN attendance_records ar ON ar.enrollment_id = e.enrollment_id
+        WHERE u.user_id = ? AND u.role = 'STUDENT' AND u.is_active = 1 AND co.term_id = ?
+        `
+      : `
+        SELECT
+          COUNT(ar.attendance_id) AS total_classes,
+          COALESCE(SUM(CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN 1 ELSE 0 END), 0) AS attended_classes,
+          COALESCE(SUM(CASE WHEN ar.status = 'ABSENT' THEN 1 ELSE 0 END), 0) AS absent_classes,
+          COALESCE(
+            ROUND(100.0 * SUM(CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN 1 ELSE 0 END) / NULLIF(COUNT(ar.attendance_id), 0), 2),
+            0
+          ) AS attendance_percentage
+        FROM users u
+        JOIN enrollments e ON e.student_id = u.student_id
+        JOIN attendance_records ar ON ar.enrollment_id = e.enrollment_id
+        WHERE u.user_id = ? AND u.role = 'STUDENT' AND u.is_active = 1
+        `;
+
+    const overallParams = effectiveTermId ? [userId, Number(effectiveTermId)] : [userId];
+
+    const subjectQuery = `
+      SELECT
+        sub.subject_id,
+        sub.subject_code,
+        sub.name AS subject_name,
+        co.term_id,
+
+        COUNT(ar.attendance_id) AS total_classes,
+
+        SUM(
+          CASE
+            WHEN ar.status IN ('PRESENT', 'LATE')
+            THEN 1 ELSE 0
+          END
+        ) AS attended_classes,
+
+        SUM(
+          CASE
+            WHEN ar.status = 'ABSENT'
+            THEN 1 ELSE 0
+          END
+        ) AS absent_classes,
+
+        ROUND(
+          100.0 * SUM(
+            CASE
+              WHEN ar.status IN ('PRESENT', 'LATE')
+              THEN 1 ELSE 0
+            END
+          ) / NULLIF(COUNT(ar.attendance_id), 0),
+          2
+        ) AS attendance_percentage
+
+      FROM users u
+      JOIN enrollments e ON e.student_id = u.student_id
+      JOIN attendance_records ar ON ar.enrollment_id = e.enrollment_id
+      JOIN class_sessions cs ON cs.session_id = ar.session_id
+      JOIN timetable_slots ts ON ts.slot_id = cs.slot_id
+      JOIN sections sec ON sec.section_id = ts.section_id
+      JOIN course_offerings co ON co.offering_id = sec.offering_id
+      JOIN subjects sub ON sub.subject_id = co.subject_id
+
+      WHERE u.user_id = ?
+        AND u.role = 'STUDENT'
+        AND u.is_active = 1
+        ${effectiveTermId ? "AND co.term_id = ?" : ""}
+
+      GROUP BY
+        sub.subject_id,
+        sub.subject_code,
+        sub.name,
+        co.term_id
+
+      ORDER BY sub.subject_code
+    `;
+
+    const subjectParams = effectiveTermId ? [userId, Number(effectiveTermId)] : [userId];
 
     const [profileResult, overallResult, subjectResult] = await Promise.all([
       // 1. Student profile
@@ -274,120 +427,10 @@ const getStudentDashboard = async (req, res) => {
       ),
 
       // 2. Overall attendance
-      pool.execute(
-        `
-          SELECT
-            COUNT(ar.attendance_id) AS total_classes,
-
-            COALESCE(
-              SUM(
-                CASE
-                  WHEN ar.status IN ('PRESENT', 'LATE')
-                  THEN 1 ELSE 0
-                END
-              ),
-              0
-            ) AS attended_classes,
-
-            COALESCE(
-              SUM(
-                CASE
-                  WHEN ar.status = 'ABSENT'
-                  THEN 1 ELSE 0
-                END
-              ),
-              0
-            ) AS absent_classes,
-
-            COALESCE(
-              ROUND(
-                100.0 * SUM(
-                  CASE
-                    WHEN ar.status IN ('PRESENT', 'LATE')
-                    THEN 1 ELSE 0
-                  END
-                ) / NULLIF(COUNT(ar.attendance_id), 0),
-                2
-              ),
-              0
-            ) AS attendance_percentage
-
-          FROM users u
-          JOIN enrollments e
-            ON e.student_id = u.student_id
-          JOIN attendance_records ar
-            ON ar.enrollment_id = e.enrollment_id
-
-          WHERE u.user_id = ?
-            AND u.role = 'STUDENT'
-            AND u.is_active = 1
-          `,
-        [userId],
-      ),
+      pool.query(overallQuery, overallParams),
 
       // 3. Subject-wise attendance
-      pool.execute(
-        `
-          SELECT
-            sub.subject_id,
-            sub.subject_code,
-            sub.name AS subject_name,
-
-            COUNT(ar.attendance_id) AS total_classes,
-
-            SUM(
-              CASE
-                WHEN ar.status IN ('PRESENT', 'LATE')
-                THEN 1 ELSE 0
-              END
-            ) AS attended_classes,
-
-            SUM(
-              CASE
-                WHEN ar.status = 'ABSENT'
-                THEN 1 ELSE 0
-              END
-            ) AS absent_classes,
-
-            ROUND(
-              100.0 * SUM(
-                CASE
-                  WHEN ar.status IN ('PRESENT', 'LATE')
-                  THEN 1 ELSE 0
-                END
-              ) / NULLIF(COUNT(ar.attendance_id), 0),
-              2
-            ) AS attendance_percentage
-
-          FROM users u
-          JOIN enrollments e
-            ON e.student_id = u.student_id
-          JOIN attendance_records ar
-            ON ar.enrollment_id = e.enrollment_id
-          JOIN class_sessions cs
-            ON cs.session_id = ar.session_id
-          JOIN timetable_slots ts
-            ON ts.slot_id = cs.slot_id
-          JOIN sections sec
-            ON sec.section_id = ts.section_id
-          JOIN course_offerings co
-            ON co.offering_id = sec.offering_id
-          JOIN subjects sub
-            ON sub.subject_id = co.subject_id
-
-          WHERE u.user_id = ?
-            AND u.role = 'STUDENT'
-            AND u.is_active = 1
-
-          GROUP BY
-            sub.subject_id,
-            sub.subject_code,
-            sub.name
-
-          ORDER BY sub.subject_code
-          `,
-        [userId],
-      ),
+      pool.query(subjectQuery, subjectParams),
     ]);
 
     const [profiles] = profileResult;
@@ -401,7 +444,7 @@ const getStudentDashboard = async (req, res) => {
       });
     }
 
-    const stats = overallRows[0];
+    const stats = overallRows[0] || {};
 
     const subjectWiseAttendance = subjects.map((subject) => ({
       ...subject,
@@ -420,10 +463,10 @@ const getStudentDashboard = async (req, res) => {
       data: {
         profile: profiles[0],
         attendance: {
-          total_classes: Number(stats.total_classes),
-          attended_classes: Number(stats.attended_classes),
-          absent_classes: Number(stats.absent_classes),
-          attendance_percentage: Number(stats.attendance_percentage),
+          total_classes: Number(stats.total_classes || 0),
+          attended_classes: Number(stats.attended_classes || 0),
+          absent_classes: Number(stats.absent_classes || 0),
+          attendance_percentage: Number(stats.attendance_percentage || 0),
         },
         subject_wise_attendance: subjectWiseAttendance,
       },
@@ -441,6 +484,34 @@ const getStudentDashboard = async (req, res) => {
 const getMyTimetable = async (req, res) => {
   try {
     const userId = req.user.user_id;
+    const { term_id, semester, academic_year_id, day_of_week } = req.query;
+    const effectiveTermId = term_id || semester;
+
+    const conditions = [
+      "u.user_id = ?",
+      "u.role = 'STUDENT'",
+      "u.is_active = 1",
+      "e.status = 'REGISTERED'",
+      "ts.is_active = 1",
+    ];
+    const params = [userId];
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    if (day_of_week !== undefined && day_of_week !== "") {
+      conditions.push("ts.day_of_week = ?");
+      params.push(Number(day_of_week));
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const [timetable] = await pool.query(
       `
@@ -455,6 +526,12 @@ const getMyTimetable = async (req, res) => {
         sub.subject_id,
         sub.subject_code,
         sub.name AS subject_name,
+
+        co.offering_id,
+        co.term_id,
+        at.term_type,
+        at.academic_year_id,
+        ay.label AS academic_year_label,
 
         sec.section_id,
         sec.section_code,
@@ -475,6 +552,12 @@ const getMyTimetable = async (req, res) => {
       JOIN course_offerings co
         ON co.offering_id = sec.offering_id
 
+      JOIN academic_terms at
+        ON co.term_id = at.term_id
+
+      JOIN academic_years ay
+        ON at.academic_year_id = ay.academic_year_id
+
       JOIN subjects sub
         ON sub.subject_id = co.subject_id
 
@@ -487,25 +570,13 @@ const getMyTimetable = async (req, res) => {
       LEFT JOIN classrooms c
         ON c.classroom_id = ts.classroom_id
 
-      WHERE u.user_id = ?
-        AND u.role = 'STUDENT'
-        AND u.is_active = 1
-        AND e.status = 'REGISTERED'
-        AND ts.is_active = 1
-        AND (
-          ts.effective_from IS NULL
-          OR ts.effective_from <= CURDATE()
-        )
-        AND (
-          ts.effective_to IS NULL
-          OR ts.effective_to >= CURDATE()
-        )
+      ${whereClause}
 
       ORDER BY
         ts.day_of_week ASC,
         ts.start_time ASC
       `,
-      [userId],
+      params,
     );
 
     return res.status(200).json({
@@ -527,6 +598,28 @@ const getMyTimetable = async (req, res) => {
 const getMyCourses = async (req, res) => {
   try {
     const userId = req.user.user_id;
+    const { term_id, semester, academic_year_id } = req.query;
+    const effectiveTermId = term_id || semester;
+
+    const conditions = [
+      "u.user_id = ?",
+      "u.role = 'STUDENT'",
+      "u.is_active = 1",
+      "e.status = 'REGISTERED'",
+    ];
+    const params = [userId];
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const [courses] = await pool.query(
       `
@@ -543,6 +636,10 @@ const getMyCourses = async (req, res) => {
         sub.delivery_type,
 
         co.offering_id,
+        co.term_id,
+        at.term_type,
+        at.academic_year_id,
+        ay.label AS academic_year_label,
 
         sec.section_id,
         sec.section_code
@@ -558,17 +655,20 @@ const getMyCourses = async (req, res) => {
       JOIN course_offerings co
         ON co.offering_id = sec.offering_id
 
+      JOIN academic_terms at
+        ON co.term_id = at.term_id
+
+      JOIN academic_years ay
+        ON at.academic_year_id = ay.academic_year_id
+
       JOIN subjects sub
         ON sub.subject_id = co.subject_id
 
-      WHERE u.user_id = ?
-        AND u.role = 'STUDENT'
-        AND u.is_active = 1
-        AND e.status = 'REGISTERED'
+      ${whereClause}
 
       ORDER BY sub.subject_code ASC
       `,
-      [userId],
+      params,
     );
 
     return res.status(200).json({

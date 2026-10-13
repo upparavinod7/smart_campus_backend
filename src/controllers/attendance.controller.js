@@ -588,6 +588,23 @@ const getStudentAttendanceSummary = async (req, res) => {
     }
 
     const student = students[0];
+    const { term_id, semester, academic_year_id } = req.query;
+    const effectiveTermId = term_id || semester;
+
+    const conditions = ["e.student_id = ?"];
+    const params = [studentId];
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     // Calculate attendance summary
     const [summaryRows] = await pool.query(
@@ -617,13 +634,14 @@ const getStudentAttendanceSummary = async (req, res) => {
                 ) AS absent
 
             FROM attendance_records ar
-
-            INNER JOIN enrollments e
-                ON e.enrollment_id = ar.enrollment_id
-
-            WHERE e.student_id = ?
+            INNER JOIN enrollments e ON e.enrollment_id = ar.enrollment_id
+            JOIN sections sec ON sec.section_id = e.section_id
+            JOIN course_offerings co ON co.offering_id = sec.offering_id
+            JOIN academic_terms at ON co.term_id = at.term_id
+            JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+            ${whereClause}
             `,
-      [studentId],
+      params,
     );
 
     const summary = summaryRows[0];

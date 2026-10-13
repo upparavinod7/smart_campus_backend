@@ -1,0 +1,175 @@
+# Joy University Smart Campus ERP — MySQL Database Architecture & Setup Guide
+
+This document describes the relational database structure, schema migration lifecycle, reference data catalogs, demo seeding, and backup/recovery procedures for the Joy University Smart Campus ERP backend.
+
+---
+
+## 1. Relational Database Overview
+
+- **Engine:** MySQL 8.0+ / InnoDB
+- **Default Character Set:** `utf8mb4`
+- **Default Collation:** `utf8mb4_unicode_ci`
+- **Connection Layer:** Node.js `mysql2/promise` connection pool
+- **Primary Source of Truth:** MySQL is the authoritative database for all institutional identity, academic hierarchy, course offerings, enrollments, timetables, class sessions, and attendance state records.
+
+---
+
+## 2. Directory Layout
+
+```text
+database/mysql/
+├── 00_create_database.sql          # Creates smart_campus database with utf8mb4 encoding
+├── schema.sql                     # Full relational schema (31 tables with FKs and indexes)
+├── migrations/                    # Ordered, deterministic incremental migrations
+│   ├── 001_create_revoked_tokens.sql
+│   └── 002_add_batch_id_to_sections.sql
+├── seeds/                         # Environment seeds
+│   ├── reference_data.sql         # Institutional reference catalogs (Degrees, Schools, Terms)
+│   └── demo_data.sql              # Dev/QA test fixtures (Admin, Faculty, Student demo accounts)
+└── README.md                      # This database guide
+```
+
+---
+
+## 3. Database Workflows
+
+### A. Initializing a Brand New Database (Fresh Install)
+
+To create the database and all 31 relational tables from scratch:
+
+```bash
+# Using npm script:
+npm run db:init
+
+# Or manually using MySQL client:
+mysql -u root -p < database/mysql/00_create_database.sql
+mysql -u root -p smart_campus < database/mysql/schema.sql
+```
+
+The initialization script:
+1. Creates the `smart_campus` database if it does not already exist.
+2. Applies the complete schema DDL with foreign key dependencies resolved.
+3. Automatically baselines existing migrations into the `schema_migrations` tracking table so they are not re-executed.
+
+---
+
+### B. Safe Incremental Migrations (Existing Database Upgrades)
+
+To apply new, unexecuted migrations to an existing database:
+
+```bash
+npm run db:migrate
+```
+
+The migration runner:
+- Inspects the `schema_migrations` table.
+- Identifies new `.sql` migration files in `database/mysql/migrations/`.
+- Executes pending migrations deterministically in alphabetical/numerical order.
+- Records the executed version in `schema_migrations`.
+- Stops immediately with exit code `1` if any migration fails.
+
+---
+
+### C. Seeding Official Reference Data (Production & Staging)
+
+Populates official university catalogs (Degrees, Course Categories, Faculty Designations, Schools, Departments, Academic Years, Academic Terms, System Settings):
+
+```bash
+npm run db:seed:ref
+
+# Or manually:
+mysql -u <user> -p smart_campus < database/mysql/seeds/reference_data.sql
+```
+
+> [!NOTE]
+> All reference statements use `INSERT IGNORE` and are completely safe to re-run without duplicating records or corrupting existing relational links.
+
+---
+
+### D. Seeding Development Demo Data (Local Dev / QA Only)
+
+Populates sample campus infrastructure, course offerings, sections, batches, and demo login accounts:
+
+```bash
+npm run db:seed:demo
+```
+
+> [!WARNING]
+> Never run `npm run db:seed:demo` in production. The script will automatically abort if `NODE_ENV=production`.
+
+#### Pre-configured Demo Accounts:
+- **System Administrator:** `admin` / `Admin@123` (`ADMIN` role)
+- **Faculty:** `FAC001` / `Faculty@123` (`FACULTY` role)
+- **Student:** `J26AIM001` / `Student@123` (`STUDENT` role)
+
+---
+
+### E. Complete Fresh Setup in One Step
+
+```bash
+npm run db:setup
+```
+
+Executes `db:init` ➔ `db:migrate` ➔ `db:seed:ref`.
+
+---
+
+## 4. MySQL DDL & Transaction Limitations
+
+> [!IMPORTANT]
+> In MySQL, Data Definition Language (DDL) statements (such as `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`) cause an **implicit commit**. They cannot be rolled back inside an explicit transaction block (`START TRANSACTION` / `ROLLBACK`).
+
+**Best Practices for Production Migrations:**
+1. Always write migrations with idempotent checks where possible (e.g. `CREATE TABLE IF NOT EXISTS`, conditional column/index checks via `INFORMATION_SCHEMA`).
+2. Always perform a verified database backup before applying migrations in production.
+3. Test every migration against a staging replica before running on production.
+
+---
+
+## 5. Backup & Disaster Recovery Procedures
+
+### Creating a Pre-Migration Backup
+
+Before running any schema changes in production, export a complete snapshot:
+
+```bash
+# Full backup with routines and triggers:
+mysqldump -u <user> -p \
+  --single-transaction \
+  --routines \
+  --triggers \
+  --databases smart_campus > backup_smart_campus_$(date +%Y%m%d_%H%M%S).sql
+```
+
+### Restoring from Backup
+
+To restore from a backup snapshot:
+
+```bash
+mysql -u <user> -p smart_campus < backup_smart_campus_<timestamp>.sql
+```
+
+---
+
+## 6. Table Relational Hierarchy
+
+```text
+schools (1) ────< departments (N)
+                      │
+                      ├───< faculty (N) ────< users (1:1)
+                      ├───< programmes (N) ───< batches (N) ───< students (N) ────< users (1:1)
+                      └───< classrooms (N) ───< devices (N)
+
+academic_years (1) ────< academic_terms (N) ────< course_offerings (N)
+                                                        │
+                                                        └───< sections (N)
+                                                                 │
+                                                                 ├───< enrollments (N)
+                                                                 └───< timetable_slots (N)
+                                                                            │
+                                                                            └───< class_sessions (N)
+                                                                                      │
+                                                                                      ├───< attendance_records (N)
+                                                                                      └───< session_reconciliation (1)
+```
+
