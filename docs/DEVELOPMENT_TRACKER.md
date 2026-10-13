@@ -11,18 +11,19 @@
 
 | Metric | Count |
 | :--- | :--- |
-| **Total Identified Features** | 16 |
+| **Total Identified Features** | 16 Features + 1 Release Milestone |
 | **Backend Feature Implementation** | 16 / 16 Completed |
-| **Backend Regression Test Suite** | 109 / 109 Passing (0 failed, 0 skipped, duration ~2.4s) |
-| **Backend Code Coverage** | Lines: 79.28% \| Functions: 92.00% \| Branches: 57.89% |
+| **Backend Regression Test Suite** | 109 / 109 Passing (0 failed, 0 skipped, duration ~3.2s) |
+| **Backend Code Coverage** | Lines: 79.28% \| Functions: 92.06% \| Branches: 57.86% |
+| **MySQL Database System** | Complete (31 tables in schema.sql, 00_create_database.sql, migrations runner with schema_migrations tracking, reference_data.sql & demo_data.sql seeds, database/mysql/README.md) |
 | **Academic Hierarchy Implementation** | Complete (School ➔ Department ➔ Program ➔ Batch ➔ Academic Year/Term ➔ Course Offering ➔ Section ➔ Timetable ➔ Class Session ➔ Attendance Records, Section + Student ➔ Enrollment) |
 | **Semester Workflows & Isolation** | Complete (FEAT-016: Academic Years & Terms APIs, Enrollments & Section Rosters, Semester-Isolated Timetable Engine, Student & Faculty Portal Term Filters, Admin Attendance Reports) |
-| **UI Stabilization & Bug Resolution** | Complete (FEAT-015: HTML error sanitization, 404 JSON fallback, application confirmation modal replacing window.confirm, academic tabs responsive layout, CRUD verification) |
-| **Backend Feature Branch** | `feature/academic-hierarchy-semester-workflows` @ `bc1a6dd` |
-| **Backend Base Branch** | `fix/academic-crud-api-errors` @ `9e8563c` |
-| **Frontend Branch** | `fix/academic-crud-api-errors` @ `2f72300` |
+| **UI Stabilization & Bug Resolution** | Complete (FEAT-014/FEAT-015: HTML error sanitization, 404 JSON fallback, ConfirmDialog modal, responsive layouts, CRUD verification) |
+| **Backend Release Branch** | `release/v1.1.0-mvp` @ `ffbce24` |
+| **Frontend Release Branch** | `release/v1.1.0-mvp` @ `a584063` |
+| **Frontend Build & Lint Quality** | 0 lint errors, production Vite build passed (247ms) |
 | **Cross-Role E2E Persona QA** | 100% Verified (Admin, Faculty, Student authentic workflows, 5-tier filtering & security barriers) |
-| **Next Recommended Milestone** | RELEASE TO MAIN (Consolidate stabilization and academic workflow branches into main) |
+| **Release Readiness Status** | Release Branches Verified & Complete — Ready for Review & Explicit Approval for `main` Merge |
 
 ---
 
@@ -671,6 +672,40 @@
 - **Merge Status**: Open (Ready for user review and PR merge)
 - **Blockers**: None
 - **Last Verified Update**: 2026-10-09T15:20:00+05:30
+
+---
+
+### `RELEASE-001`: Production Readiness, Complete MySQL Setup System & Main Release Candidate
+- **Milestone ID**: `RELEASE-001`
+- **Milestone Name**: Production Readiness, Complete MySQL Setup System & Main Branch Release Preparation
+- **Module**: Database Initialization, Migration Runner, Reference Seeds, Environment Security, and Release Branches
+- **Backend Status**: `VERIFIED_RELEASE_READY`
+- **Frontend Status**: `VERIFIED_RELEASE_READY`
+- **Architectural Scope & Technical Accomplishments**:
+  1. **Comprehensive MySQL Database Setup System**:
+     - `database/mysql/00_create_database.sql`: Initializes `smart_campus` database with `utf8mb4` encoding and collation.
+     - `database/mysql/schema.sql`: Authoritative ordered DDL for all 31 relational tables with strict foreign keys, indexes, checks, and InnoDB engine.
+     - `database/mysql/migrations/`: Ordered migration history (`001_create_revoked_tokens.sql`, `002_add_batch_id_to_sections.sql`).
+     - `src/scripts/migrate.js`: Upgraded migration runner tracking versions in `schema_migrations`, guaranteeing deterministic execution and idempotency.
+     - `src/scripts/initDb.js`: Automates fresh database creation, schema loading, and baselining.
+     - `src/scripts/seedRef.js`: Seeds official institutional catalogs (`degrees`, `course_categories`, `designations`, `schools`, `departments`, `academic_years`, `academic_terms`, `system_settings`).
+     - `src/scripts/seedDemo.js`: Seeds development/staging fixtures (demo infrastructure, offerings, sections, batches, students, enrollments, users) with automatic production guard.
+     - `database/mysql/README.md`: Comprehensive documentation covering setup, migrations, backups with `mysqldump`, and MySQL DDL transaction limitations.
+     - `npm` scripts: Added `db:init`, `db:migrate`, `db:seed:ref`, `db:seed:demo`, and `db:setup`.
+  2. **Environment & Security Hardening**:
+     - Mandatory environment variable validation at startup (`DB_USER`, `DB_NAME`, `JWT_SECRET`) in `src/server.js`.
+     - Explicit origin CORS policy in `src/app.js` using `CLIENT_URL` (no wildcard with credentials).
+     - Cleaned up login page demo credential autofill in frontend.
+     - Comprehensive `.env.example` templates in both backend and frontend without exposed secrets.
+  3. **Release Branches Prepared**:
+     - Backend: `release/v1.1.0-mvp` @ commit `ffbce24` (integrating all features FEAT-001 through FEAT-016 and DB setup system).
+     - Frontend: `release/v1.1.0-mvp` @ commit `a584063` (integrating FEAT-014/015 UI stabilization, ConfirmDialog, and cleaned login).
+- **Backend Test Suite**: 109 / 109 passing tests (`npm test`, 0 failed, 0 skipped, duration ~3.2s)
+- **Backend Coverage**: Lines: 79.28% | Functions: 92.06% | Branches: 57.86%
+- **Frontend Quality**: ESLint: 0 errors | Vite production build: succeeded (247ms)
+- **Merge Status**: Release branches verified, clean working trees, awaiting explicit user approval before merging into `main`.
+- **Blockers**: None
+- **Last Verified Update**: 2026-10-13T23:30:00+05:30
 
 ---
 
