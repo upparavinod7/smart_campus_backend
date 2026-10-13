@@ -186,3 +186,4 @@ npm run test:coverage
 ## 7. License
 
 Proprietary — Joy University Smart Campus ERP. All rights reserved.
+

@@ -172,3 +172,4 @@ academic_years (1) ────< academic_terms (N) ────< course_offerin
                                                                                       ├───< attendance_records (N)
                                                                                       └───< session_reconciliation (1)
 ```
+

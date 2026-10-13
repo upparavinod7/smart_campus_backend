@@ -10,3 +10,4 @@ CREATE DATABASE IF NOT EXISTS smart_campus
   COLLATE utf8mb4_unicode_ci;
 
 USE smart_campus;
+
