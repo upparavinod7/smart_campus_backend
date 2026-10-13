@@ -24,11 +24,21 @@ router.get("/student/:studentId", authenticateToken, getStudentAttendance);
 router.get("/session/:sessionId", authenticateToken, getSessionAttendance);
 
 router.get("/staf/t/:facultyId", authenticateToken, getFacultyAttendance);
+router.get("/faculty/:facultyId", authenticateToken, getFacultyAttendance);
+router.get("/staff/:facultyId", authenticateToken, getFacultyAttendance);
 
 router.get(
   "/student/:studentId/summary",
   authenticateToken,
   getStudentAttendanceSummary,
+);
+
+const { getAttendanceReport } = require("../controllers/admin.controller");
+router.get(
+  "/report",
+  authenticateToken,
+  authorizeRoles("ADMIN"),
+  getAttendanceReport,
 );
 
 // GET /attendance/:id

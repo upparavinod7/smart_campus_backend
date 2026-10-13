@@ -59,6 +59,192 @@ const getDashboardStats = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/admin/reports/attendance
+ * Aggregates attendance statistics across semesters, terms, departments, programmes, batches, sections, and subjects.
+ * Permitted role: ADMIN
+ */
+const getAttendanceReport = async (req, res) => {
+  try {
+    const {
+      term_id,
+      semester,
+      academic_year_id,
+      department_id,
+      programme_id,
+      batch_id,
+      section_id,
+      subject_id,
+      start_date,
+      end_date,
+    } = req.query;
+
+    const effectiveTermId = term_id || semester;
+    const conditions = [];
+    const params = [];
+
+    if (effectiveTermId) {
+      conditions.push("co.term_id = ?");
+      params.push(Number(effectiveTermId));
+    }
+
+    if (academic_year_id) {
+      conditions.push("at.academic_year_id = ?");
+      params.push(Number(academic_year_id));
+    }
+
+    if (section_id) {
+      conditions.push("sec.section_id = ?");
+      params.push(Number(section_id));
+    }
+
+    if (subject_id) {
+      conditions.push("co.subject_id = ?");
+      params.push(Number(subject_id));
+    }
+
+    if (batch_id) {
+      conditions.push("sec.batch_id = ?");
+      params.push(Number(batch_id));
+    }
+
+    if (programme_id) {
+      conditions.push("bt.programme_id = ?");
+      params.push(Number(programme_id));
+    }
+
+    if (department_id) {
+      conditions.push("p.department_id = ?");
+      params.push(Number(department_id));
+    }
+
+    if (start_date) {
+      conditions.push("cs.session_date >= ?");
+      params.push(start_date);
+    }
+
+    if (end_date) {
+      conditions.push("cs.session_date <= ?");
+      params.push(end_date);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    // 1. Overall Aggregation
+    const [overallRows] = await pool.query(
+      `
+      SELECT
+          COUNT(DISTINCT cs.session_id) AS total_sessions,
+          COUNT(DISTINCT CASE WHEN cs.status = 'CLOSED' THEN cs.session_id END) AS completed_sessions,
+          COUNT(DISTINCT CASE WHEN cs.status = 'CANCELLED' THEN cs.session_id END) AS cancelled_sessions,
+          COUNT(DISTINCT CASE WHEN cs.status = 'OPEN' THEN cs.session_id END) AS open_sessions,
+          COUNT(DISTINCT ar.attendance_id) AS total_attendance_instances,
+          COUNT(DISTINCT CASE WHEN ar.status = 'PRESENT' THEN ar.attendance_id END) AS present_count,
+          COUNT(DISTINCT CASE WHEN ar.status = 'LATE' THEN ar.attendance_id END) AS late_count,
+          COUNT(DISTINCT CASE WHEN ar.status = 'ABSENT' THEN ar.attendance_id END) AS absent_count
+      FROM class_sessions cs
+      JOIN timetable_slots ts ON cs.slot_id = ts.slot_id
+      JOIN sections sec ON ts.section_id = sec.section_id
+      JOIN course_offerings co ON sec.offering_id = co.offering_id
+      JOIN academic_terms at ON co.term_id = at.term_id
+      JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN attendance_records ar ON ar.session_id = cs.session_id
+      ${whereClause}
+      `,
+      params,
+    );
+
+    const s = overallRows[0] || {};
+    const totalRecords = Number(s.total_attendance_instances || 0);
+    const presentCount = Number(s.present_count || 0);
+    const lateCount = Number(s.late_count || 0);
+    const absentCount = Number(s.absent_count || 0);
+    const attendedCount = presentCount + lateCount;
+    const attendancePercentage = totalRecords > 0
+      ? Number(((attendedCount / totalRecords) * 100).toFixed(2))
+      : 0;
+
+    // 2. Section Breakdown
+    const [breakdownRows] = await pool.query(
+      `
+      SELECT
+          sec.section_id,
+          sec.section_code,
+          sub.subject_id,
+          sub.subject_code,
+          sub.name AS subject_name,
+          co.term_id,
+          at.term_type,
+          ay.label AS academic_year_label,
+          bt.label AS batch_label,
+          p.name AS programme_name,
+          COUNT(DISTINCT cs.session_id) AS total_sessions,
+          COUNT(DISTINCT CASE WHEN cs.status = 'CLOSED' THEN cs.session_id END) AS completed_sessions,
+          COUNT(DISTINCT ar.attendance_id) AS total_marked,
+          COUNT(DISTINCT CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN ar.attendance_id END) AS attended_count,
+          COUNT(DISTINCT CASE WHEN ar.status = 'ABSENT' THEN ar.attendance_id END) AS absent_count,
+          ROUND(
+            100.0 * COUNT(DISTINCT CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN ar.attendance_id END)
+            / NULLIF(COUNT(DISTINCT ar.attendance_id), 0),
+            2
+          ) AS section_attendance_percentage
+      FROM class_sessions cs
+      JOIN timetable_slots ts ON cs.slot_id = ts.slot_id
+      JOIN sections sec ON ts.section_id = sec.section_id
+      JOIN course_offerings co ON sec.offering_id = co.offering_id
+      JOIN subjects sub ON co.subject_id = sub.subject_id
+      JOIN academic_terms at ON co.term_id = at.term_id
+      JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN attendance_records ar ON ar.session_id = cs.session_id
+      ${whereClause}
+      GROUP BY sec.section_id, sub.subject_id, co.term_id, at.term_type, ay.label, bt.label, p.name
+      ORDER BY sub.subject_code ASC, sec.section_code ASC
+      `,
+      params,
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Attendance report retrieved successfully",
+      data: {
+        summary: {
+          total_sessions: Number(s.total_sessions || 0),
+          completed_sessions: Number(s.completed_sessions || 0),
+          cancelled_sessions: Number(s.cancelled_sessions || 0),
+          open_sessions: Number(s.open_sessions || 0),
+          total_attendance_records: totalRecords,
+          present_count: presentCount,
+          late_count: lateCount,
+          absent_count: absentCount,
+          overall_attendance_percentage: attendancePercentage,
+        },
+        sections_breakdown: breakdownRows.map((r) => ({
+          ...r,
+          total_sessions: Number(r.total_sessions),
+          completed_sessions: Number(r.completed_sessions),
+          total_marked: Number(r.total_marked),
+          attended_count: Number(r.attended_count),
+          absent_count: Number(r.absent_count),
+          section_attendance_percentage: r.section_attendance_percentage !== null
+            ? Number(r.section_attendance_percentage)
+            : null,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("Get attendance report error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
 module.exports = {
   getDashboardStats,
+  getAttendanceReport,
 };
