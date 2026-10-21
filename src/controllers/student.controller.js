@@ -292,6 +292,19 @@ const updateStudent = async (req, res) => {
       ],
     );
 
+    // Synchronize linked users table
+    const isActiveUser = updatedStudent.status === "ACTIVE" ? 1 : 0;
+    await pool.query(
+      `
+      UPDATE users
+      SET
+        email = ?,
+        is_active = ?
+      WHERE student_id = ?
+      `,
+      [updatedStudent.email, isActiveUser, id],
+    );
+
     return res.status(200).json({
       success: true,
       message: "Student updated successfully",

@@ -1,29 +1,49 @@
 const pool = require("../config/mysql");
+const { resolveFacultyRecord } = require("./facultyPortal.controller");
 
 // GET /attendance/sessions
 const getAttendanceSessions = async (req, res) => {
   try {
-    const [sessions] = await pool.query(`
-            SELECT
-                session_id,
-                slot_id,
-                session_date,
-                faculty_id,
-                classroom_id,
-                scheduled_start,
-                scheduled_end,
-                present_until,
-                late_until,
-                status,
-                opened_at,
-                closed_at,
-                closed_by_user,
-                cancel_reason,
-                created_at,
-                updated_at
-            FROM class_sessions
-            ORDER BY session_id
-        `);
+    let whereClause = "";
+    const params = [];
+
+    if (req.user && req.user.role === "FACULTY") {
+      const facultyRec = await resolveFacultyRecord(req.user);
+      if (!facultyRec) {
+        return res.status(403).json({
+          success: false,
+          message: "Faculty profile not found or account is not linked to a faculty member",
+        });
+      }
+      whereClause = "WHERE faculty_id = ?";
+      params.push(facultyRec.faculty_id);
+    }
+
+    const [sessions] = await pool.query(
+      `
+      SELECT
+          session_id,
+          slot_id,
+          session_date,
+          faculty_id,
+          classroom_id,
+          scheduled_start,
+          scheduled_end,
+          present_until,
+          late_until,
+          status,
+          opened_at,
+          closed_at,
+          closed_by_user,
+          cancel_reason,
+          created_at,
+          updated_at
+      FROM class_sessions
+      ${whereClause}
+      ORDER BY session_id
+      `,
+      params,
+    );
 
     return res.status(200).json({
       success: true,
@@ -47,27 +67,27 @@ const getAttendanceSessionById = async (req, res) => {
 
     const [sessions] = await pool.query(
       `
-            SELECT
-                session_id,
-                slot_id,
-                session_date,
-                faculty_id,
-                classroom_id,
-                scheduled_start,
-                scheduled_end,
-                present_until,
-                late_until,
-                status,
-                opened_at,
-                closed_at,
-                closed_by_user,
-                cancel_reason,
-                created_at,
-                updated_at
-            FROM class_sessions
-            WHERE session_id = ?
-            LIMIT 1
-        `,
+      SELECT
+          session_id,
+          slot_id,
+          session_date,
+          faculty_id,
+          classroom_id,
+          scheduled_start,
+          scheduled_end,
+          present_until,
+          late_until,
+          status,
+          opened_at,
+          closed_at,
+          closed_by_user,
+          cancel_reason,
+          created_at,
+          updated_at
+      FROM class_sessions
+      WHERE session_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -78,10 +98,23 @@ const getAttendanceSessionById = async (req, res) => {
       });
     }
 
+    const session = sessions[0];
+
+    // Ownership check for faculty
+    if (req.user && req.user.role === "FACULTY") {
+      const facultyRec = await resolveFacultyRecord(req.user);
+      if (!facultyRec || session.faculty_id !== facultyRec.faculty_id) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to access another faculty member's attendance session",
+        });
+      }
+    }
+
     return res.status(200).json({
       success: true,
       message: "Attendance session retrieved successfully",
-      data: sessions[0],
+      data: session,
     });
   } catch (error) {
     console.error("Get attendance session error:", error);
@@ -91,6 +124,16 @@ const getAttendanceSessionById = async (req, res) => {
       message: "Internal server error",
     });
   }
+};
+
+const formatDateTime = (dateStr, timeOrDt) => {
+  if (!timeOrDt) return null;
+  const str = String(timeOrDt).trim();
+  if (str.includes("T") || str.includes(" ")) {
+    return str.replace("T", " ").replace("Z", "").slice(0, 19);
+  }
+  const timePart = str.length === 5 ? `${str}:00` : str;
+  return `${String(dateStr).slice(0, 10)} ${timePart}`;
 };
 
 const createAttendanceSession = async (req, res) => {
@@ -106,29 +149,21 @@ const createAttendanceSession = async (req, res) => {
       late_until,
     } = req.body;
 
-    if (
-      !slot_id ||
-      !session_date ||
-      !faculty_id ||
-      !classroom_id ||
-      !scheduled_start ||
-      !scheduled_end
-    ) {
+    if (!slot_id || !session_date) {
       return res.status(400).json({
         success: false,
-        message:
-          "slot_id, session_date, faculty_id, classroom_id, scheduled_start and scheduled_end are required",
+        message: "slot_id and session_date are required",
       });
     }
 
     // Check slot
     const [slots] = await pool.query(
       `
-            SELECT slot_id
-            FROM timetable_slots
-            WHERE slot_id = ?
-            LIMIT 1
-            `,
+      SELECT slot_id, section_id, faculty_id, classroom_id, start_time, end_time, is_active
+      FROM timetable_slots
+      WHERE slot_id = ?
+      LIMIT 1
+      `,
       [slot_id],
     );
 
@@ -139,15 +174,55 @@ const createAttendanceSession = async (req, res) => {
       });
     }
 
+    const slot = slots[0];
+    let resolvedFacultyId = faculty_id;
+
+    // If caller is FACULTY, enforce authenticated faculty identity and slot ownership
+    if (req.user && req.user.role === "FACULTY") {
+      const facultyRec = await resolveFacultyRecord(req.user);
+      if (!facultyRec) {
+        return res.status(403).json({
+          success: false,
+          message: "Faculty profile not found or account is not linked to a faculty member",
+        });
+      }
+
+      if (slot.faculty_id !== facultyRec.faculty_id) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to create a session for another faculty member's timetable slot",
+        });
+      }
+
+      resolvedFacultyId = facultyRec.faculty_id;
+    }
+
+    const resolvedClassroomId = classroom_id || slot.classroom_id;
+    const resolvedScheduledStart = formatDateTime(session_date, scheduled_start || slot.start_time);
+    const resolvedScheduledEnd = formatDateTime(session_date, scheduled_end || slot.end_time);
+
+    if (
+      !resolvedFacultyId ||
+      !resolvedClassroomId ||
+      !resolvedScheduledStart ||
+      !resolvedScheduledEnd
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "slot_id, session_date, faculty_id, classroom_id, scheduled_start and scheduled_end are required",
+      });
+    }
+
     // Check faculty
     const [faculty] = await pool.query(
       `
-            SELECT faculty_id
-            FROM faculty
-            WHERE faculty_id = ?
-            LIMIT 1
-            `,
-      [faculty_id],
+      SELECT faculty_id
+      FROM faculty
+      WHERE faculty_id = ?
+      LIMIT 1
+      `,
+      [resolvedFacultyId],
     );
 
     if (faculty.length === 0) {
@@ -160,12 +235,12 @@ const createAttendanceSession = async (req, res) => {
     // Check classroom
     const [classrooms] = await pool.query(
       `
-            SELECT classroom_id
-            FROM classrooms
-            WHERE classroom_id = ?
-            LIMIT 1
-            `,
-      [classroom_id],
+      SELECT classroom_id
+      FROM classrooms
+      WHERE classroom_id = ?
+      LIMIT 1
+      `,
+      [resolvedClassroomId],
     );
 
     if (classrooms.length === 0) {
@@ -175,50 +250,54 @@ const createAttendanceSession = async (req, res) => {
       });
     }
 
-    // Prevent duplicate session for same slot/date
+    // Prevent duplicate session for same slot and scheduled start time
     const [existingSession] = await pool.query(
       `
-            SELECT session_id
-            FROM class_sessions
-            WHERE slot_id = ?
-              AND session_date = ?
-            LIMIT 1
-            `,
-      [slot_id, session_date],
+      SELECT session_id
+      FROM class_sessions
+      WHERE slot_id = ?
+        AND scheduled_start = ?
+      LIMIT 1
+      `,
+      [slot_id, resolvedScheduledStart],
     );
 
     if (existingSession.length > 0) {
       return res.status(409).json({
         success: false,
-        message: "Attendance session already exists for this slot and date",
+        message: "Attendance session already exists for this slot and scheduled start time",
       });
     }
 
-    const resolvedPresentUntil = present_until || scheduled_start;
-    const resolvedLateUntil = late_until || scheduled_end;
+    const resolvedPresentUntil = present_until
+      ? formatDateTime(session_date, present_until)
+      : resolvedScheduledStart;
+    const resolvedLateUntil = late_until
+      ? formatDateTime(session_date, late_until)
+      : resolvedScheduledEnd;
 
     const [result] = await pool.query(
       `
-            INSERT INTO class_sessions (
-                slot_id,
-                session_date,
-                faculty_id,
-                classroom_id,
-                scheduled_start,
-                scheduled_end,
-                present_until,
-                late_until,
-                status
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED')
-            `,
+      INSERT INTO class_sessions (
+          slot_id,
+          session_date,
+          faculty_id,
+          classroom_id,
+          scheduled_start,
+          scheduled_end,
+          present_until,
+          late_until,
+          status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED')
+      `,
       [
         slot_id,
         session_date,
-        faculty_id,
-        classroom_id,
-        scheduled_start,
-        scheduled_end,
+        resolvedFacultyId,
+        resolvedClassroomId,
+        resolvedScheduledStart,
+        resolvedScheduledEnd,
         resolvedPresentUntil,
         resolvedLateUntil,
       ],
@@ -231,10 +310,10 @@ const createAttendanceSession = async (req, res) => {
         session_id: result.insertId,
         slot_id,
         session_date,
-        faculty_id,
-        classroom_id,
-        scheduled_start,
-        scheduled_end,
+        faculty_id: resolvedFacultyId,
+        classroom_id: resolvedClassroomId,
+        scheduled_start: resolvedScheduledStart,
+        scheduled_end: resolvedScheduledEnd,
         present_until: resolvedPresentUntil,
         late_until: resolvedLateUntil,
         status: "SCHEDULED",
@@ -257,16 +336,17 @@ const startAttendanceSession = async (req, res) => {
     // Check whether session exists
     const [sessions] = await pool.query(
       `
-            SELECT
-                session_id,
-                status,
-                opened_at,
-                scheduled_start,
-                scheduled_end
-            FROM class_sessions
-            WHERE session_id = ?
-            LIMIT 1
-            `,
+      SELECT
+          session_id,
+          faculty_id,
+          status,
+          opened_at,
+          scheduled_start,
+          scheduled_end
+      FROM class_sessions
+      WHERE session_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -279,6 +359,17 @@ const startAttendanceSession = async (req, res) => {
 
     const session = sessions[0];
 
+    // Ownership check for FACULTY role
+    if (req.user && req.user.role === "FACULTY") {
+      const facultyRec = await resolveFacultyRecord(req.user);
+      if (!facultyRec || session.faculty_id !== facultyRec.faculty_id) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to start another faculty member's attendance session",
+        });
+      }
+    }
+
     // Session can only be started from SCHEDULED state
     if (session.status !== "SCHEDULED") {
       return res.status(400).json({
@@ -290,37 +381,37 @@ const startAttendanceSession = async (req, res) => {
     // Start the session
     await pool.query(
       `
-            UPDATE class_sessions
-            SET
-                status = 'OPEN',
-                opened_at = NOW()
-            WHERE session_id = ?
-            `,
+      UPDATE class_sessions
+      SET
+          status = 'OPEN',
+          opened_at = NOW()
+      WHERE session_id = ?
+      `,
       [id],
     );
 
     // Fetch updated session
     const [updatedSessions] = await pool.query(
       `
-            SELECT
-                session_id,
-                slot_id,
-                session_date,
-                faculty_id,
-                classroom_id,
-                scheduled_start,
-                scheduled_end,
-                present_until,
-                late_until,
-                status,
-                opened_at,
-                closed_at,
-                closed_by_user,
-                cancel_reason
-            FROM class_sessions
-            WHERE session_id = ?
-            LIMIT 1
-            `,
+      SELECT
+          session_id,
+          slot_id,
+          session_date,
+          faculty_id,
+          classroom_id,
+          scheduled_start,
+          scheduled_end,
+          present_until,
+          late_until,
+          status,
+          opened_at,
+          closed_at,
+          closed_by_user,
+          cancel_reason
+      FROM class_sessions
+      WHERE session_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -348,6 +439,7 @@ const finalizeAttendanceSession = async (req, res) => {
       `
       SELECT
         session_id,
+        faculty_id,
         status,
         opened_at,
         closed_at
@@ -366,6 +458,17 @@ const finalizeAttendanceSession = async (req, res) => {
     }
 
     const session = sessions[0];
+
+    // Ownership check for FACULTY role
+    if (req.user && req.user.role === "FACULTY") {
+      const facultyRec = await resolveFacultyRecord(req.user);
+      if (!facultyRec || session.faculty_id !== facultyRec.faculty_id) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to finalize another faculty member's attendance session",
+        });
+      }
+    }
 
     // Session can only be finalized when it is OPEN
     if (session.status !== "OPEN") {
@@ -386,6 +489,32 @@ const finalizeAttendanceSession = async (req, res) => {
       WHERE session_id = ?
       `,
       [req.user.user_id, id],
+    );
+
+    // Auto-record unmarked enrolled students as ABSENT (source: SYSTEM_CLOSE)
+    await pool.query(
+      `
+      INSERT INTO attendance_records (
+        session_id,
+        enrollment_id,
+        status,
+        source,
+        marked_at
+      )
+      SELECT
+        ?,
+        e.enrollment_id,
+        'ABSENT',
+        'SYSTEM_CLOSE',
+        NOW(3)
+      FROM timetable_slots ts
+      JOIN class_sessions cs ON cs.slot_id = ts.slot_id
+      JOIN enrollments e ON e.section_id = ts.section_id AND e.status = 'REGISTERED'
+      LEFT JOIN attendance_records ar ON ar.session_id = cs.session_id AND ar.enrollment_id = e.enrollment_id
+      WHERE cs.session_id = ?
+        AND ar.attendance_id IS NULL
+      `,
+      [id, id],
     );
 
     // Fetch updated session
@@ -661,5 +790,5 @@ module.exports = {
   finalizeAttendanceSession,
   getAttendanceSessionStatus,
   getAttendanceSessionPresencePool,
-  getAttendanceSessionPresencePoolMembers
+  getAttendanceSessionPresencePoolMembers,
 };

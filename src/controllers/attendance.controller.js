@@ -1,4 +1,5 @@
 const pool = require("../config/mysql");
+const { resolveFacultyRecord } = require("./facultyPortal.controller");
 
 const createAttendance = async (req, res) => {
   try {
@@ -28,6 +29,7 @@ const createAttendance = async (req, res) => {
             SELECT
                 session_id,
                 slot_id,
+                faculty_id,
                 status AS session_status
             FROM class_sessions
             WHERE session_id = ?
@@ -44,6 +46,17 @@ const createAttendance = async (req, res) => {
     }
 
     const session = sessions[0];
+
+    // Ownership check if caller is FACULTY
+    if (req.user && req.user.role === "FACULTY") {
+      const facultyRec = await resolveFacultyRecord(req.user);
+      if (!facultyRec || session.faculty_id !== facultyRec.faculty_id) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to mark attendance for another faculty member's session",
+        });
+      }
+    }
 
     // Attendance can only be marked
     // while the session is OPEN
@@ -857,6 +870,98 @@ const overrideAttendance = async (req, res) => {
   }
 };
 
+const updateAttendance = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "status is required",
+      });
+    }
+
+    const allowedStatuses = ["PRESENT", "LATE", "ABSENT"];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid attendance status",
+      });
+    }
+
+    const [attendanceRows] = await pool.query(
+      `
+      SELECT
+        ar.attendance_id,
+        ar.session_id,
+        ar.enrollment_id,
+        ar.status,
+        cs.faculty_id,
+        cs.status AS session_status
+      FROM attendance_records ar
+      JOIN class_sessions cs ON ar.session_id = cs.session_id
+      WHERE ar.attendance_id = ?
+      LIMIT 1
+      `,
+      [id],
+    );
+
+    if (attendanceRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Attendance record not found",
+      });
+    }
+
+    const record = attendanceRows[0];
+
+    if (req.user && req.user.role === "FACULTY") {
+      const facultyRec = await resolveFacultyRecord(req.user);
+      if (!facultyRec || record.faculty_id !== facultyRec.faculty_id) {
+        return res.status(403).json({
+          success: false,
+          message: "You do not have permission to update attendance for another faculty member's session",
+        });
+      }
+    }
+
+    if (record.session_status !== "OPEN") {
+      return res.status(400).json({
+        success: false,
+        message: `Attendance cannot be updated because the session is ${record.session_status}. Session must be OPEN`,
+      });
+    }
+
+    await pool.query(
+      `
+      UPDATE attendance_records
+      SET status = ?, source = 'MANUAL', marked_at = NOW()
+      WHERE attendance_id = ?
+      `,
+      [status, id],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Attendance record updated successfully",
+      data: {
+        attendance_id: Number(id),
+        session_id: record.session_id,
+        enrollment_id: record.enrollment_id,
+        status,
+        source: "MANUAL",
+      },
+    });
+  } catch (error) {
+    console.error("Update attendance error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
 module.exports = {
   getAttendanceRecords,
   getAttendanceById,
@@ -865,5 +970,6 @@ module.exports = {
   getSessionAttendance,
   getFacultyAttendance,
   createAttendance,
+  updateAttendance,
   overrideAttendance,
 };

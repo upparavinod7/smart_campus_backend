@@ -88,6 +88,7 @@ router.use("/attendance", attendanceRoutes);
 
 // Student Portal
 router.use("/student", studentPortalRoutes);
+router.use("/student-portal", studentPortalRoutes);
 
 // Subject management
 router.use("/subjects", subjectRoutes);

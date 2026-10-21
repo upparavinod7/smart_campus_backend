@@ -112,6 +112,7 @@ const getMyAttendance = async (req, res) => {
       `
       SELECT
         ar.attendance_id,
+        cs.session_id,
         sub.subject_code,
         sub.name AS subject_name,
         co.term_id,
@@ -134,13 +135,13 @@ const getMyAttendance = async (req, res) => {
         ON ts.slot_id = cs.slot_id
       JOIN sections sec
         ON sec.section_id = ts.section_id
-      JOIN course_offerings co
+      LEFT JOIN course_offerings co
         ON co.offering_id = sec.offering_id
-      JOIN academic_terms at
+      LEFT JOIN academic_terms at
         ON co.term_id = at.term_id
-      JOIN academic_years ay
+      LEFT JOIN academic_years ay
         ON at.academic_year_id = ay.academic_year_id
-      JOIN subjects sub
+      LEFT JOIN subjects sub
         ON sub.subject_id = co.subject_id
 
       ${whereClause}
@@ -238,13 +239,13 @@ const getMyAttendanceSummary = async (req, res) => {
         ON ts.slot_id = cs.slot_id
       JOIN sections sec
         ON sec.section_id = ts.section_id
-      JOIN course_offerings co
+      LEFT JOIN course_offerings co
         ON co.offering_id = sec.offering_id
-      JOIN academic_terms at
+      LEFT JOIN academic_terms at
         ON co.term_id = at.term_id
-      JOIN academic_years ay
+      LEFT JOIN academic_years ay
         ON at.academic_year_id = ay.academic_year_id
-      JOIN subjects sub
+      LEFT JOIN subjects sub
         ON sub.subject_id = co.subject_id
 
       ${whereClause}
@@ -549,16 +550,16 @@ const getMyTimetable = async (req, res) => {
       JOIN sections sec
         ON sec.section_id = e.section_id
 
-      JOIN course_offerings co
+      LEFT JOIN course_offerings co
         ON co.offering_id = sec.offering_id
 
-      JOIN academic_terms at
+      LEFT JOIN academic_terms at
         ON co.term_id = at.term_id
 
-      JOIN academic_years ay
+      LEFT JOIN academic_years ay
         ON at.academic_year_id = ay.academic_year_id
 
-      JOIN subjects sub
+      LEFT JOIN subjects sub
         ON sub.subject_id = co.subject_id
 
       JOIN timetable_slots ts
@@ -652,16 +653,16 @@ const getMyCourses = async (req, res) => {
       JOIN sections sec
         ON sec.section_id = e.section_id
 
-      JOIN course_offerings co
+      LEFT JOIN course_offerings co
         ON co.offering_id = sec.offering_id
 
-      JOIN academic_terms at
+      LEFT JOIN academic_terms at
         ON co.term_id = at.term_id
 
-      JOIN academic_years ay
+      LEFT JOIN academic_years ay
         ON at.academic_year_id = ay.academic_year_id
 
-      JOIN subjects sub
+      LEFT JOIN subjects sub
         ON sub.subject_id = co.subject_id
 
       ${whereClause}

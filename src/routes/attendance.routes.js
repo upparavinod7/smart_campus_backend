@@ -8,6 +8,7 @@ const {
   getSessionAttendance,
   getFacultyAttendance,
   createAttendance,
+  updateAttendance,
   overrideAttendance,
 } = require("../controllers/attendance.controller");
 
@@ -52,10 +53,19 @@ router.post(
   createAttendance,
 );
 
+// PUT /attendance/:id (Update attendance during open session)
+router.put(
+  "/:id",
+  authenticateToken,
+  authorizeRoles("ADMIN", "FACULTY"),
+  updateAttendance,
+);
+
+// POST /attendance/:id/override (Administrative corrections — ADMIN ONLY)
 router.post(
   "/:id/override",
   authenticateToken,
-  authorizeRoles("ADMIN", "FACULTY"),
+  authorizeRoles("ADMIN"),
   overrideAttendance,
 );
 module.exports = router;

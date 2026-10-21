@@ -374,6 +374,18 @@ const updateFaculty = async (req, res) => {
       ],
     );
 
+    // Synchronize linked users table
+    await pool.query(
+      `
+      UPDATE users
+      SET
+        email = ?,
+        is_active = ?
+      WHERE faculty_id = ?
+      `,
+      [updatedFaculty.email, updatedFaculty.is_active, id],
+    );
+
     return res.status(200).json({
       success: true,
       message: "Faculty member updated successfully",

@@ -378,11 +378,11 @@ const getMyFacultyTimetable = async (req, res) => {
       FROM timetable_slots ts
       JOIN faculty f ON ts.faculty_id = f.faculty_id
       JOIN sections sec ON ts.section_id = sec.section_id
-      JOIN course_offerings co ON sec.offering_id = co.offering_id
-      JOIN academic_terms at ON co.term_id = at.term_id
-      JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
-      JOIN subjects sub ON co.subject_id = sub.subject_id
-      JOIN classrooms c ON ts.classroom_id = c.classroom_id
+      LEFT JOIN course_offerings co ON sec.offering_id = co.offering_id
+      LEFT JOIN academic_terms at ON co.term_id = at.term_id
+      LEFT JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+      LEFT JOIN subjects sub ON co.subject_id = sub.subject_id
+      LEFT JOIN classrooms c ON ts.classroom_id = c.classroom_id
       LEFT JOIN blocks b ON c.block_id = b.block_id
       ${whereClause}
       ORDER BY ts.day_of_week ASC, ts.start_time ASC, ts.slot_id ASC
@@ -643,6 +643,9 @@ const getMyFacultyAttendanceSessions = async (req, res) => {
           cs.closed_by_user,
           cs.cancel_reason,
           (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id) AS total_marked,
+          (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id AND ar.status = 'PRESENT') AS present_count,
+          (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id AND ar.status = 'ABSENT') AS absent_count,
+          (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id AND ar.status = 'LATE') AS late_count,
           cs.created_at,
           cs.updated_at
       FROM class_sessions cs
@@ -908,6 +911,32 @@ const finalizeMyFacultyAttendanceSession = async (req, res) => {
       [req.user.user_id, id],
     );
 
+    // Auto-record unmarked enrolled students as ABSENT (source: SYSTEM_CLOSE)
+    await pool.query(
+      `
+      INSERT INTO attendance_records (
+        session_id,
+        enrollment_id,
+        status,
+        source,
+        marked_at
+      )
+      SELECT
+        ?,
+        e.enrollment_id,
+        'ABSENT',
+        'SYSTEM_CLOSE',
+        NOW(3)
+      FROM timetable_slots ts
+      JOIN class_sessions cs ON cs.slot_id = ts.slot_id
+      JOIN enrollments e ON e.section_id = ts.section_id AND e.status = 'REGISTERED'
+      LEFT JOIN attendance_records ar ON ar.session_id = cs.session_id AND ar.enrollment_id = e.enrollment_id
+      WHERE cs.session_id = ?
+        AND ar.attendance_id IS NULL
+      `,
+      [id, id],
+    );
+
     const [updatedRows] = await pool.query(
       "SELECT session_id, status, closed_at, closed_by_user, updated_at FROM class_sessions WHERE session_id = ? LIMIT 1",
       [id],
@@ -976,6 +1005,7 @@ const getMyFacultyAttendanceRoster = async (req, res) => {
           s.full_name,
           s.email,
           COALESCE(ar.status, 'ABSENT') AS attendance_status,
+          COALESCE(ar.status, 'ABSENT') AS status,
           ar.attendance_id,
           ar.source,
           ar.marked_at
@@ -997,6 +1027,7 @@ const getMyFacultyAttendanceRoster = async (req, res) => {
         session_status: session.status,
         total_enrolled: roster.length,
         roster,
+        members: roster,
       },
     });
   } catch (error) {
@@ -1153,11 +1184,162 @@ const markMyFacultyAttendance = async (req, res) => {
   }
 };
 
+const formatDateTime = (dateStr, timeOrDt) => {
+  if (!timeOrDt) return null;
+  const str = String(timeOrDt).trim();
+  if (str.includes("T") || str.includes(" ")) {
+    return str.replace("T", " ").replace("Z", "").slice(0, 19);
+  }
+  const timePart = str.length === 5 ? `${str}:00` : str;
+  return `${String(dateStr).slice(0, 10)} ${timePart}`;
+};
+
 /**
- * POST /api/v1/faculty/attendance/records/:id/override
- * Performs administrative correction/override on attendance record. Enforces faculty ownership.
+ * POST /api/v1/faculty/attendance/sessions
+ * Creates a class session for an assigned timetable slot. Enforces faculty ownership.
  */
-const overrideMyFacultyAttendanceRecord = async (req, res) => {
+const createMyFacultyAttendanceSession = async (req, res) => {
+  try {
+    const faculty = await resolveFacultyRecord(req.user);
+
+    if (!faculty) {
+      return res.status(404).json({
+        success: false,
+        message: "Faculty profile not found or account is not linked to a faculty member",
+      });
+    }
+
+    const {
+      slot_id,
+      session_date,
+      classroom_id,
+      scheduled_start,
+      scheduled_end,
+      present_until,
+      late_until,
+    } = req.body || {};
+
+    if (!slot_id || !session_date) {
+      return res.status(400).json({
+        success: false,
+        message: "slot_id and session_date are required",
+      });
+    }
+
+    // Check slot
+    const [slots] = await pool.query(
+      `
+      SELECT slot_id, section_id, faculty_id, classroom_id, start_time, end_time, is_active
+      FROM timetable_slots
+      WHERE slot_id = ?
+      LIMIT 1
+      `,
+      [slot_id],
+    );
+
+    if (slots.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid slot_id",
+      });
+    }
+
+    const slot = slots[0];
+
+    // Enforce faculty ownership of the slot
+    if (slot.faculty_id !== faculty.faculty_id) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to create a session for another faculty member's timetable slot",
+      });
+    }
+
+    const resolvedClassroomId = classroom_id || slot.classroom_id;
+    const resolvedScheduledStart = formatDateTime(session_date, scheduled_start || slot.start_time);
+    const resolvedScheduledEnd = formatDateTime(session_date, scheduled_end || slot.end_time);
+    const resolvedPresentUntil = present_until
+      ? formatDateTime(session_date, present_until)
+      : resolvedScheduledStart;
+    const resolvedLateUntil = late_until
+      ? formatDateTime(session_date, late_until)
+      : resolvedScheduledEnd;
+
+    // Prevent duplicate session for same slot and scheduled start time
+    const [existingSession] = await pool.query(
+      `
+      SELECT session_id
+      FROM class_sessions
+      WHERE slot_id = ? AND scheduled_start = ?
+      LIMIT 1
+      `,
+      [slot_id, resolvedScheduledStart],
+    );
+
+    if (existingSession.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Attendance session already exists for this slot and scheduled start time",
+      });
+    }
+
+    const [result] = await pool.query(
+      `
+      INSERT INTO class_sessions (
+          slot_id,
+          session_date,
+          faculty_id,
+          classroom_id,
+          scheduled_start,
+          scheduled_end,
+          present_until,
+          late_until,
+          status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED')
+      `,
+      [
+        slot_id,
+        session_date,
+        faculty.faculty_id,
+        resolvedClassroomId,
+        resolvedScheduledStart,
+        resolvedScheduledEnd,
+        resolvedPresentUntil,
+        resolvedLateUntil,
+      ],
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Attendance session created successfully",
+      data: {
+        session_id: result.insertId,
+        slot_id,
+        session_date,
+        faculty_id: faculty.faculty_id,
+        classroom_id: resolvedClassroomId,
+        scheduled_start: resolvedScheduledStart,
+        scheduled_end: resolvedScheduledEnd,
+        present_until: resolvedPresentUntil,
+        late_until: resolvedLateUntil,
+        status: "SCHEDULED",
+      },
+    });
+  } catch (error) {
+    console.error("Create faculty session error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+/**
+ * PUT/PATCH /api/v1/faculty/attendance/sessions/:sessionId/records/:recordId
+ * or /api/v1/faculty/attendance/records/:recordId
+ * Updates attendance for an enrolled student while the session is OPEN. Enforces faculty ownership.
+ */
+const updateMyFacultyAttendanceRecord = async (req, res) => {
   try {
     const faculty = await resolveFacultyRecord(req.user);
 
@@ -1168,146 +1350,114 @@ const overrideMyFacultyAttendanceRecord = async (req, res) => {
       });
     }
 
-    const { id } = req.params;
-    const { new_status, reason_code, reason_note } = req.body || {};
+    const recordId = req.params.recordId || req.params.id;
+    const { status } = req.body || {};
 
-    if (!new_status || !reason_code) {
+    if (!status) {
       return res.status(400).json({
         success: false,
-        message: "new_status and reason_code are required",
+        message: "status is required",
       });
     }
 
-    if (!ALLOWED_ATTENDANCE_STATUSES.includes(new_status)) {
+    if (!ALLOWED_ATTENDANCE_STATUSES.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: `new_status must be one of: ${ALLOWED_ATTENDANCE_STATUSES.join(", ")}`,
+        message: `status must be one of: ${ALLOWED_ATTENDANCE_STATUSES.join(", ")}`,
       });
     }
 
-    if (!ALLOWED_REASON_CODES.includes(reason_code)) {
-      return res.status(400).json({
-        success: false,
-        message: `reason_code must be one of: ${ALLOWED_REASON_CODES.join(", ")}`,
-      });
-    }
-
-    const [recordRows] = await pool.query(
+    // Look up attendance record
+    const [records] = await pool.query(
       `
       SELECT
-          ar.attendance_id,
-          ar.session_id,
-          ar.enrollment_id,
-          ar.status,
-          cs.faculty_id,
-          e.student_id,
-          s.register_no,
-          s.full_name AS student_name
+        ar.attendance_id,
+        ar.session_id,
+        ar.enrollment_id,
+        ar.status,
+        cs.faculty_id,
+        cs.status AS session_status,
+        cs.slot_id,
+        e.student_id,
+        s.register_no,
+        s.full_name
       FROM attendance_records ar
-      JOIN class_sessions cs ON cs.session_id = ar.session_id
-      JOIN enrollments e ON e.enrollment_id = ar.enrollment_id
-      JOIN students s ON s.student_id = e.student_id
+      JOIN class_sessions cs ON ar.session_id = cs.session_id
+      JOIN enrollments e ON ar.enrollment_id = e.enrollment_id
+      JOIN students s ON e.student_id = s.student_id
       WHERE ar.attendance_id = ?
       LIMIT 1
       `,
-      [id],
+      [recordId],
     );
 
-    if (recordRows.length === 0) {
+    if (records.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Attendance record not found",
       });
     }
 
-    const attendance = recordRows[0];
+    const record = records[0];
 
     // Ownership check
-    if (attendance.faculty_id !== faculty.faculty_id) {
+    if (record.faculty_id !== faculty.faculty_id) {
       return res.status(403).json({
         success: false,
-        message: "Faculty cannot override attendance for another faculty member's session",
+        message: "You do not have permission to update attendance for another faculty member's session",
       });
     }
 
-    if (attendance.status === new_status) {
+    // Session status check: can only update when OPEN
+    if (record.session_status !== "OPEN") {
       return res.status(400).json({
         success: false,
-        message: "New attendance status is the same as current status",
+        message: `Cannot update attendance for session with status ${record.session_status}. Attendance can only be updated while the session is OPEN`,
       });
     }
 
-    const connection = await pool.getConnection();
-    try {
-      await connection.beginTransaction();
-
-      await connection.query(
-        `
-        INSERT INTO attendance_corrections (
-            attendance_id,
-            previous_status,
-            new_status,
-            reason_code,
-            reason_note,
-            requested_by,
-            approval_status,
-            decided_by,
-            decided_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', ?, NOW())
-        `,
-        [
-          attendance.attendance_id,
-          attendance.status,
-          new_status,
-          reason_code,
-          reason_note || null,
-          req.user.user_id,
-          req.user.user_id,
-        ],
-      );
-
-      await connection.query(
-        `
-        UPDATE attendance_records
-        SET status = ?, source = 'CORRECTION', marked_at = NOW()
-        WHERE attendance_id = ?
-        `,
-        [new_status, attendance.attendance_id],
-      );
-
-      await connection.commit();
-    } catch (txError) {
-      await connection.rollback();
-      throw txError;
-    } finally {
-      connection.release();
-    }
+    await pool.query(
+      `
+      UPDATE attendance_records
+      SET status = ?, source = 'MANUAL', marked_at = NOW()
+      WHERE attendance_id = ?
+      `,
+      [status, recordId],
+    );
 
     return res.status(200).json({
       success: true,
-      message: "Attendance record overridden successfully",
+      message: "Attendance record updated successfully",
       data: {
-        attendance_id: attendance.attendance_id,
-        student_id: attendance.student_id,
-        register_no: attendance.register_no,
-        student_name: attendance.student_name,
-        previous_status: attendance.status,
-        new_status,
-        reason_code,
-        reason_note: reason_note || null,
-        approval_status: "APPROVED",
-        source: "CORRECTION",
+        attendance_id: Number(recordId),
+        session_id: record.session_id,
+        enrollment_id: record.enrollment_id,
+        student_id: record.student_id,
+        register_no: record.register_no,
+        full_name: record.full_name,
+        status,
+        source: "MANUAL",
       },
     });
   } catch (error) {
-    console.error("Override faculty attendance error:", error);
-
+    console.error("Update faculty attendance error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
     });
   }
+};
+
+/**
+ * Attendance corrections and overrides are strictly prohibited for faculty.
+ * Restricted exclusively to administrators.
+ */
+const overrideMyFacultyAttendanceRecord = async (req, res) => {
+  return res.status(403).json({
+    success: false,
+    message:
+      "Faculty members are not permitted to access, create, or modify attendance corrections. Attendance corrections are restricted to administrators.",
+  });
 };
 
 /**
@@ -1409,10 +1559,12 @@ module.exports = {
   getMyFacultySections,
   getMyFacultyAttendanceSessions,
   getMyFacultyAttendanceSessionById,
+  createMyFacultyAttendanceSession,
   startMyFacultyAttendanceSession,
   finalizeMyFacultyAttendanceSession,
   getMyFacultyAttendanceRoster,
   markMyFacultyAttendance,
+  updateMyFacultyAttendanceRecord,
   overrideMyFacultyAttendanceRecord,
   getMyFacultyAttendanceSummary,
 };
