@@ -8,10 +8,12 @@ const {
   getMyFacultySections,
   getMyFacultyAttendanceSessions,
   getMyFacultyAttendanceSessionById,
+  createMyFacultyAttendanceSession,
   startMyFacultyAttendanceSession,
   finalizeMyFacultyAttendanceSession,
   getMyFacultyAttendanceRoster,
   markMyFacultyAttendance,
+  updateMyFacultyAttendanceRecord,
   overrideMyFacultyAttendanceRecord,
   getMyFacultyAttendanceSummary,
 } = require("../controllers/facultyPortal.controller");
@@ -48,6 +50,9 @@ router.get("/sections", getMyFacultySections);
 // GET /api/v1/faculty/attendance/sessions
 router.get("/attendance/sessions", getMyFacultyAttendanceSessions);
 
+// POST /api/v1/faculty/attendance/sessions (Create session for assigned slot)
+router.post("/attendance/sessions", createMyFacultyAttendanceSession);
+
 // GET /api/v1/faculty/attendance/sessions/:id
 router.get("/attendance/sessions/:id", getMyFacultyAttendanceSessionById);
 
@@ -61,19 +66,34 @@ router.post("/attendance/sessions/:id/finalize", finalizeMyFacultyAttendanceSess
 // GET /api/v1/faculty/attendance/sessions/:sessionId/roster
 router.get("/attendance/sessions/:sessionId/roster", getMyFacultyAttendanceRoster);
 
-// Attendance Recording
+// Attendance Recording (New Records)
 // POST /api/v1/faculty/attendance/sessions/:sessionId/records
 router.post("/attendance/sessions/:sessionId/records", markMyFacultyAttendance);
 
 // POST /api/v1/faculty/attendance/records
 router.post("/attendance/records", markMyFacultyAttendance);
 
-// Attendance Corrections / Overrides
-// POST /api/v1/faculty/attendance/records/:id/override
-router.post("/attendance/records/:id/override", overrideMyFacultyAttendanceRecord);
+// Attendance Updating (Active/Open Session Records)
+// PUT/PATCH /api/v1/faculty/attendance/sessions/:sessionId/records/:recordId
+router.put(
+  "/attendance/sessions/:sessionId/records/:recordId",
+  updateMyFacultyAttendanceRecord,
+);
+router.patch(
+  "/attendance/sessions/:sessionId/records/:recordId",
+  updateMyFacultyAttendanceRecord,
+);
+router.put("/attendance/records/:recordId", updateMyFacultyAttendanceRecord);
+router.patch("/attendance/records/:recordId", updateMyFacultyAttendanceRecord);
 
-// POST /api/v1/faculty/attendance/override/:id
-router.post("/attendance/override/:id", overrideMyFacultyAttendanceRecord);
+// Attendance Corrections / Overrides — STRICTLY PROHIBITED FOR FACULTY (403 FORBIDDEN)
+router.all("/attendance/records/:id/override", overrideMyFacultyAttendanceRecord);
+router.all("/attendance/override/:id", overrideMyFacultyAttendanceRecord);
+router.all("/attendance/corrections", overrideMyFacultyAttendanceRecord);
+router.all("/attendance/corrections/:id", overrideMyFacultyAttendanceRecord);
+router.all("/attendance/records/:id/corrections", overrideMyFacultyAttendanceRecord);
+router.all("/attendance/corrections/:id/approve", overrideMyFacultyAttendanceRecord);
+router.all("/attendance/corrections/:id/reject", overrideMyFacultyAttendanceRecord);
 
 // Attendance Summary
 // GET /api/v1/faculty/attendance/summary
