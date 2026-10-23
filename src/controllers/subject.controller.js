@@ -45,8 +45,10 @@ const getSubjects = async (req, res) => {
           s.category_id,
           cc.name AS category_name,
           s.owner_school_id,
+          s.owner_school_id AS school_id,
           sch.name AS school_name,
           s.owner_department_id,
+          s.owner_department_id AS department_id,
           d.name AS department_name,
           d.code AS department_code,
           s.is_active,
@@ -97,8 +99,10 @@ const getSubjectById = async (req, res) => {
           s.category_id,
           cc.name AS category_name,
           s.owner_school_id,
+          s.owner_school_id AS school_id,
           sch.name AS school_name,
           s.owner_department_id,
+          s.owner_department_id AS department_id,
           d.name AS department_name,
           d.code AS department_code,
           s.is_active,
@@ -149,7 +153,9 @@ const createSubject = async (req, res) => {
       delivery_type = "THEORY",
       category_id,
       owner_department_id,
+      department_id,
       owner_school_id,
+      school_id,
       is_active = 1,
     } = req.body || {};
 
@@ -205,8 +211,17 @@ const createSubject = async (req, res) => {
     }
 
     // Validate department and resolve school
-    let resolvedSchoolId = owner_school_id ? Number(owner_school_id) : null;
-    let resolvedDeptId = owner_department_id ? Number(owner_department_id) : null;
+    const rawDept =
+      owner_department_id !== undefined && owner_department_id !== ""
+        ? owner_department_id
+        : (department_id !== undefined && department_id !== "" ? department_id : null);
+    const rawSchool =
+      owner_school_id !== undefined && owner_school_id !== ""
+        ? owner_school_id
+        : (school_id !== undefined && school_id !== "" ? school_id : null);
+
+    let resolvedSchoolId = rawSchool ? Number(rawSchool) : null;
+    let resolvedDeptId = rawDept ? Number(rawDept) : null;
 
     if (resolvedDeptId) {
       const [deptRows] = await pool.query(
@@ -297,8 +312,10 @@ const createSubject = async (req, res) => {
           s.category_id,
           cc.name AS category_name,
           s.owner_school_id,
+          s.owner_school_id AS school_id,
           sch.name AS school_name,
           s.owner_department_id,
+          s.owner_department_id AS department_id,
           d.name AS department_name,
           d.code AS department_code,
           s.is_active,
@@ -343,7 +360,9 @@ const updateSubject = async (req, res) => {
       delivery_type,
       category_id,
       owner_department_id,
+      department_id,
       owner_school_id,
+      school_id,
       is_active,
     } = req.body || {};
 
@@ -427,12 +446,20 @@ const updateSubject = async (req, res) => {
       newDelivery = delivery_type;
     }
 
-    if (owner_department_id !== undefined) {
-      if (owner_department_id === null) {
+    const incomingDeptId =
+      owner_department_id !== undefined ? owner_department_id : department_id;
+    const incomingSchoolId =
+      owner_school_id !== undefined ? owner_school_id : school_id;
+
+    if (incomingDeptId !== undefined) {
+      if (incomingDeptId === null || incomingDeptId === "") {
         newDept = null;
-        newSchool = owner_school_id !== undefined ? owner_school_id : null;
+        newSchool =
+          incomingSchoolId !== undefined && incomingSchoolId !== ""
+            ? Number(incomingSchoolId)
+            : null;
       } else {
-        const deptId = Number(owner_department_id);
+        const deptId = Number(incomingDeptId);
         const [deptRows] = await pool.query(
           "SELECT department_id, school_id, is_active FROM departments WHERE department_id = ? LIMIT 1",
           [deptId],
@@ -445,6 +472,12 @@ const updateSubject = async (req, res) => {
         }
         newDept = deptId;
         newSchool = deptRows[0].school_id;
+      }
+    } else if (incomingSchoolId !== undefined) {
+      if (incomingSchoolId === null || incomingSchoolId === "") {
+        newSchool = null;
+      } else {
+        newSchool = Number(incomingSchoolId);
       }
     }
 
@@ -510,8 +543,10 @@ const updateSubject = async (req, res) => {
           s.category_id,
           cc.name AS category_name,
           s.owner_school_id,
+          s.owner_school_id AS school_id,
           sch.name AS school_name,
           s.owner_department_id,
+          s.owner_department_id AS department_id,
           d.name AS department_name,
           d.code AS department_code,
           s.is_active,
