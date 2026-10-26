@@ -20,9 +20,13 @@ This document describes the relational database structure, schema migration life
 database/mysql/
 ├── 00_create_database.sql          # Creates smart_campus database with utf8mb4 encoding
 ├── schema.sql                     # Full relational schema (31 tables with FKs and indexes)
+├── data_dump.sql                  # Complete database snapshot (schema + all current live records)
+├── data_insert_queries.sql        # Standalone INSERT IGNORE statements for team sharing without dropping tables
 ├── migrations/                    # Ordered, deterministic incremental migrations
 │   ├── 001_create_revoked_tokens.sql
-│   └── 002_add_batch_id_to_sections.sql
+│   ├── 002_add_batch_id_to_sections.sql
+│   ├── 003_allow_multiple_sessions_per_date.sql
+│   └── 004_add_full_name_to_users.sql
 ├── seeds/                         # Environment seeds
 │   ├── reference_data.sql         # Institutional reference catalogs (Degrees, Schools, Terms)
 │   └── demo_data.sql              # Dev/QA test fixtures (Admin, Faculty, Student demo accounts)
@@ -104,7 +108,32 @@ npm run db:seed:demo
 
 ---
 
-### E. Complete Fresh Setup in One Step
+### E. Exporting Live Database Snapshot (Complete Data Dump)
+
+To export all current live database records, tables, triggers, and routines into `database/mysql/data_dump.sql`:
+
+```bash
+npm run db:dump
+```
+
+This exports all relational data using `--complete-insert` and `--single-transaction`, ready for instant environment setup or disaster recovery.
+
+---
+
+### F. Team Data Synchronization (Safe Insert Queries)
+
+To populate team members' local databases with the exact current data without dropping or recreating existing tables:
+
+```bash
+mysql -u <user> -p smart_campus < database/mysql/data_insert_queries.sql
+```
+
+> [!TIP]
+> `data_insert_queries.sql` uses `INSERT IGNORE` and disables foreign key checks during execution. It inserts all records without deleting or modifying any existing developer data or schemas.
+
+---
+
+### G. Complete Fresh Setup in One Step
 
 ```bash
 npm run db:setup
@@ -128,25 +157,32 @@ Executes `db:init` ➔ `db:migrate` ➔ `db:seed:ref`.
 
 ## 5. Backup & Disaster Recovery Procedures
 
-### Creating a Pre-Migration Backup
+### Creating a Database Snapshot / Backup
 
-Before running any schema changes in production, export a complete snapshot:
+Export a complete snapshot using the integrated npm script:
 
 ```bash
-# Full backup with routines and triggers:
-mysqldump -u <user> -p \
-  --single-transaction \
-  --routines \
-  --triggers \
-  --databases smart_campus > backup_smart_campus_$(date +%Y%m%d_%H%M%S).sql
+npm run db:dump
 ```
 
-### Restoring from Backup
-
-To restore from a backup snapshot:
+Or manually with routines, triggers, and transactions:
 
 ```bash
-mysql -u <user> -p smart_campus < backup_smart_campus_<timestamp>.sql
+mysqldump -u <user> -p \
+  --single-transaction \
+  --no-tablespaces \
+  --routines \
+  --triggers \
+  --complete-insert \
+  smart_campus > database/mysql/data_dump.sql
+```
+
+### Restoring from Database Snapshot
+
+To restore the complete database state from `data_dump.sql`:
+
+```bash
+mysql -u <user> -p smart_campus < database/mysql/data_dump.sql
 ```
 
 ---
