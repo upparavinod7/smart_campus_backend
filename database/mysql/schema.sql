@@ -341,6 +341,7 @@ CREATE TABLE IF NOT EXISTS `sections` (
 CREATE TABLE IF NOT EXISTS `users` (
   `user_id` int unsigned NOT NULL AUTO_INCREMENT,
   `username` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `full_name` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email` varchar(190) COLLATE utf8mb4_unicode_ci NOT NULL,
   `password_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `role` enum('ADMIN','FACULTY','STUDENT','OPERATOR','VIEWER') COLLATE utf8mb4_unicode_ci NOT NULL,

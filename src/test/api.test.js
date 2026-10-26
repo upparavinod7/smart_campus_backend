@@ -4263,3 +4263,114 @@ test("FEAT-017 Regression: Admin Attendance Correction workflow remains fully op
     await pool.query("DELETE FROM class_sessions WHERE session_id = ?", [sess.insertId]);
   }
 });
+
+test("Profile RBAC: Admin can view and update profile, whereas Student/Faculty are read-only", async () => {
+  const adminLoginRes = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "Admin@123" }),
+  });
+  const adminLoginBody = await adminLoginRes.json();
+  const testAdminToken = adminLoginBody.token;
+
+  const studentLoginRes = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "J26AIM001", password: "Student@123" }),
+  });
+  const studentLoginBody = await studentLoginRes.json();
+  const testStudentToken = studentLoginBody.token;
+
+  // 1. Admin can GET profile
+  const adminProfileRes = await fetch(`${baseUrl}/auth/profile`, {
+    headers: { Authorization: `Bearer ${testAdminToken}` },
+  });
+  const adminProfileBody = await adminProfileRes.json();
+  assert.equal(adminProfileRes.status, 200);
+  assert.equal(adminProfileBody.success, true);
+  assert.equal(adminProfileBody.data.role, "ADMIN");
+  assert.ok(adminProfileBody.data.email);
+
+  // 2. Student can GET profile (read-only institutional record)
+  const studentProfileRes = await fetch(`${baseUrl}/auth/profile`, {
+    headers: { Authorization: `Bearer ${testStudentToken}` },
+  });
+  const studentProfileBody = await studentProfileRes.json();
+  assert.equal(studentProfileRes.status, 200);
+  assert.equal(studentProfileBody.success, true);
+  assert.equal(studentProfileBody.data.role, "STUDENT");
+  assert.ok(studentProfileBody.data.register_no);
+
+  // 3. Admin can update their profile (PUT /api/v1/auth/profile)
+  const updateAdminRes = await fetch(`${baseUrl}/auth/profile`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${testAdminToken}`,
+    },
+    body: JSON.stringify({
+      full_name: "Chief Administrator",
+      email: "chief.admin@joyuniversity.edu.in",
+    }),
+  });
+  const updateAdminBody = await updateAdminRes.json();
+  assert.equal(updateAdminRes.status, 200);
+  assert.equal(updateAdminBody.success, true);
+  assert.equal(updateAdminBody.data.full_name, "Chief Administrator");
+  assert.equal(updateAdminBody.data.email, "chief.admin@joyuniversity.edu.in");
+
+  // Restore admin email & full_name
+  await pool.query(
+    "UPDATE users SET full_name = 'System Administrator', email = 'admin@joyuniversity.edu.in' WHERE username = 'admin'",
+  );
+
+  // 4. Student CANNOT update profile (Strict 403 Forbidden)
+  const updateStudentRes = await fetch(`${baseUrl}/auth/profile`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${testStudentToken}`,
+    },
+    body: JSON.stringify({
+      full_name: "Tampered Name",
+      email: "tampered@example.com",
+    }),
+  });
+  const updateStudentBody = await updateStudentRes.json();
+  assert.equal(updateStudentRes.status, 403);
+  assert.equal(updateStudentBody.success, false);
+
+  // 5. Faculty can GET profile (read-only institutional record)
+  const facultyLoginRes = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "FAC001", password: "Faculty@123" }),
+  });
+  const facultyLoginBody = await facultyLoginRes.json();
+  const testFacultyToken = facultyLoginBody.token;
+
+  const facultyProfileRes = await fetch(`${baseUrl}/auth/profile`, {
+    headers: { Authorization: `Bearer ${testFacultyToken}` },
+  });
+  const facultyProfileBody = await facultyProfileRes.json();
+  assert.equal(facultyProfileRes.status, 200);
+  assert.equal(facultyProfileBody.success, true);
+  assert.equal(facultyProfileBody.data.role, "FACULTY");
+  assert.ok(facultyProfileBody.data.employee_code);
+
+  // 6. Faculty CANNOT update profile (Strict 403 Forbidden)
+  const updateFacultyRes = await fetch(`${baseUrl}/auth/profile`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${testFacultyToken}`,
+    },
+    body: JSON.stringify({
+      full_name: "Faculty Tampered Name",
+      email: "facultytampered@example.com",
+    }),
+  });
+  const updateFacultyBody = await updateFacultyRes.json();
+  assert.equal(updateFacultyRes.status, 403);
+  assert.equal(updateFacultyBody.success, false);
+});

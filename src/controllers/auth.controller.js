@@ -21,6 +21,7 @@ const login = async (req, res) => {
       `SELECT
       user_id,
       username,
+      full_name,
       email,
       password_hash,
       role,
@@ -79,6 +80,8 @@ const login = async (req, res) => {
       data: {
         user_id: user.user_id,
         username: user.username,
+        name: user.full_name || user.username,
+        full_name: user.full_name || user.username,
         email: user.email,
         role: user.role,
         faculty_id: user.faculty_id,
@@ -101,6 +104,7 @@ const getMe = async (req, res) => {
       `SELECT
         user_id,
         username,
+        full_name,
         email,
         role,
         faculty_id,
@@ -127,6 +131,8 @@ const getMe = async (req, res) => {
       data: {
         user_id: user.user_id,
         username: user.username,
+        name: user.full_name || user.username,
+        full_name: user.full_name || user.username,
         email: user.email,
         role: user.role,
         faculty_id: user.faculty_id,
@@ -139,6 +145,286 @@ const getMe = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error",
+    });
+  }
+};
+
+const getProfile = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const [users] = await pool.query(
+      `SELECT
+        user_id,
+        username,
+        full_name,
+        email,
+        role,
+        faculty_id,
+        student_id,
+        is_active,
+        created_at,
+        last_login_at
+      FROM users
+      WHERE user_id = ?
+      LIMIT 1`,
+      [userId],
+    );
+
+    if (users.length === 0 || !users[0].is_active) {
+      return res.status(404).json({
+        success: false,
+        message: "User account is invalid or inactive",
+      });
+    }
+
+    const user = users[0];
+    let profileData = {
+      user_id: user.user_id,
+      username: user.username,
+      name: user.full_name || user.username,
+      full_name: user.full_name || user.username,
+      email: user.email,
+      role: user.role,
+      status: user.is_active ? "ACTIVE" : "INACTIVE",
+      created_at: user.created_at,
+      last_login_at: user.last_login_at,
+    };
+
+    if (user.role === "STUDENT" && user.student_id) {
+      const [students] = await pool.query(
+        `SELECT
+          s.student_id,
+          s.register_no,
+          s.full_name,
+          s.email,
+          s.phone,
+          s.status AS student_status,
+          b.label AS batch_label,
+          p.programme_code,
+          p.name AS programme_name,
+          d.name AS degree_name,
+          d.level AS degree_level,
+          ay.label AS academic_year_label
+        FROM students s
+        LEFT JOIN batches b ON b.batch_id = s.batch_id
+        LEFT JOIN programmes p ON p.programme_id = b.programme_id
+        LEFT JOIN degrees d ON d.degree_id = p.degree_id
+        LEFT JOIN academic_years ay ON ay.academic_year_id = b.start_year_id
+        WHERE s.student_id = ?
+        LIMIT 1`,
+        [user.student_id],
+      );
+      if (students.length > 0) {
+        const s = students[0];
+        profileData = {
+          ...profileData,
+          student_id: s.student_id,
+          register_no: s.register_no,
+          name: s.full_name,
+          full_name: s.full_name,
+          email: s.email || profileData.email,
+          phone: s.phone,
+          student_status: s.student_status,
+          batch_label: s.batch_label,
+          programme_name: s.programme_name,
+          programme_code: s.programme_code,
+          degree_name: s.degree_name,
+          degree_level: s.degree_level,
+          academic_year_label: s.academic_year_label,
+        };
+      }
+    } else if (user.role === "FACULTY" && user.faculty_id) {
+      const [faculties] = await pool.query(
+        `SELECT
+          f.faculty_id,
+          f.employee_code,
+          f.full_name,
+          f.email,
+          des.name AS designation,
+          d.name AS department_name,
+          d.code AS department_code,
+          sch.name AS school_name
+        FROM faculty f
+        LEFT JOIN designations des ON f.designation_id = des.designation_id
+        LEFT JOIN departments d ON f.department_id = d.department_id
+        LEFT JOIN schools sch ON f.school_id = sch.school_id
+        WHERE f.faculty_id = ?
+        LIMIT 1`,
+        [user.faculty_id],
+      );
+      if (faculties.length > 0) {
+        const f = faculties[0];
+        profileData = {
+          ...profileData,
+          faculty_id: f.faculty_id,
+          employee_code: f.employee_code,
+          name: f.full_name,
+          full_name: f.full_name,
+          email: f.email || profileData.email,
+          designation: f.designation,
+          department_name: f.department_name,
+          department_code: f.department_code,
+          school_name: f.school_name,
+        };
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile retrieved successfully",
+      data: profileData,
+    });
+  } catch (error) {
+    console.error("Get profile error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching profile",
+    });
+  }
+};
+
+const updateProfile = async (req, res) => {
+  try {
+    const { user_id, role } = req.user;
+
+    // RBAC: If the profile viewer is admin he can change their things,
+    // whereas remaining roles can only view their details.
+    if (role !== "ADMIN") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Profile modification is restricted to administrators. Remaining roles can view institutional records only.",
+      });
+    }
+
+    const { full_name, email, username, password } = req.body || {};
+
+    if (!full_name && !email && !username && !password) {
+      return res.status(400).json({
+        success: false,
+        message: "No fields provided to update.",
+      });
+    }
+
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "Please provide a valid email address.",
+        });
+      }
+
+      const [existingEmail] = await pool.query(
+        "SELECT user_id FROM users WHERE email = ? AND user_id != ? LIMIT 1",
+        [email.trim().toLowerCase(), user_id],
+      );
+      if (existingEmail.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: "Email address is already in use by another account.",
+        });
+      }
+    }
+
+    if (username) {
+      if (username.trim().length < 3) {
+        return res.status(400).json({
+          success: false,
+          message: "Username must be at least 3 characters long.",
+        });
+      }
+
+      const [existingUser] = await pool.query(
+        "SELECT user_id FROM users WHERE username = ? AND user_id != ? LIMIT 1",
+        [username.trim(), user_id],
+      );
+      if (existingUser.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: "Username is already taken by another account.",
+        });
+      }
+    }
+
+    const updates = [];
+    const values = [];
+
+    if (full_name !== undefined && full_name.trim()) {
+      updates.push("full_name = ?");
+      values.push(full_name.trim());
+    }
+
+    if (email) {
+      updates.push("email = ?");
+      values.push(email.trim().toLowerCase());
+    }
+
+    if (username) {
+      updates.push("username = ?");
+      values.push(username.trim());
+    }
+
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: "Password must be at least 6 characters long.",
+        });
+      }
+      const hash = await bcrypt.hash(password, 10);
+      updates.push("password_hash = ?");
+      values.push(hash);
+    }
+
+    if (updates.length > 0) {
+      values.push(user_id);
+      await pool.query(
+        `UPDATE users SET ${updates.join(", ")}, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+        values,
+      );
+    }
+
+    // Retrieve and return the updated user profile
+    const [updatedRows] = await pool.query(
+      `SELECT
+        user_id,
+        username,
+        full_name,
+        email,
+        role,
+        faculty_id,
+        student_id,
+        is_active,
+        created_at,
+        updated_at
+      FROM users
+      WHERE user_id = ?
+      LIMIT 1`,
+      [user_id],
+    );
+
+    const updatedUser = updatedRows[0];
+
+    return res.status(200).json({
+      success: true,
+      message: "Admin profile updated successfully.",
+      data: {
+        user_id: updatedUser.user_id,
+        username: updatedUser.username,
+        name: updatedUser.full_name || updatedUser.username,
+        full_name: updatedUser.full_name || updatedUser.username,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        is_active: updatedUser.is_active,
+      },
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while updating profile",
     });
   }
 };
@@ -179,5 +465,7 @@ const logout = async (req, res) => {
 module.exports = {
   login,
   getMe,
+  getProfile,
+  updateProfile,
   logout,
 };
