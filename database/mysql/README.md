@@ -21,6 +21,7 @@ database/mysql/
 ├── 00_create_database.sql          # Creates smart_campus database with utf8mb4 encoding
 ├── schema.sql                     # Full relational schema (31 tables with FKs and indexes)
 ├── data_dump.sql                  # Complete database snapshot (schema + all current live records)
+├── data_insert_queries.sql        # Standalone INSERT IGNORE statements for team sharing without dropping tables
 ├── migrations/                    # Ordered, deterministic incremental migrations
 │   ├── 001_create_revoked_tokens.sql
 │   ├── 002_add_batch_id_to_sections.sql
@@ -119,7 +120,20 @@ This exports all relational data using `--complete-insert` and `--single-transac
 
 ---
 
-### F. Complete Fresh Setup in One Step
+### F. Team Data Synchronization (Safe Insert Queries)
+
+To populate team members' local databases with the exact current data without dropping or recreating existing tables:
+
+```bash
+mysql -u <user> -p smart_campus < database/mysql/data_insert_queries.sql
+```
+
+> [!TIP]
+> `data_insert_queries.sql` uses `INSERT IGNORE` and disables foreign key checks during execution. It inserts all records without deleting or modifying any existing developer data or schemas.
+
+---
+
+### G. Complete Fresh Setup in One Step
 
 ```bash
 npm run db:setup
