@@ -105,6 +105,11 @@ const getMe = async (req, res) => {
         user_id,
         username,
         full_name,
+        gender,
+        date_of_birth,
+        blood_group,
+        joining_year,
+        employee_id,
         email,
         role,
         faculty_id,
@@ -133,6 +138,11 @@ const getMe = async (req, res) => {
         username: user.username,
         name: user.full_name || user.username,
         full_name: user.full_name || user.username,
+        gender: user.gender,
+        date_of_birth: user.date_of_birth,
+        blood_group: user.blood_group,
+        joining_year: user.joining_year,
+        employee_id: user.employee_id,
         email: user.email,
         role: user.role,
         faculty_id: user.faculty_id,
@@ -158,6 +168,11 @@ const getProfile = async (req, res) => {
         user_id,
         username,
         full_name,
+        gender,
+        date_of_birth,
+        blood_group,
+        joining_year,
+        employee_id,
         email,
         role,
         faculty_id,
@@ -184,6 +199,11 @@ const getProfile = async (req, res) => {
       username: user.username,
       name: user.full_name || user.username,
       full_name: user.full_name || user.username,
+      employee_id: user.employee_id,
+      gender: user.gender,
+      date_of_birth: user.date_of_birth,
+      blood_group: user.blood_group,
+      joining_year: user.joining_year,
       email: user.email,
       role: user.role,
       status: user.is_active ? "ACTIVE" : "INACTIVE",
@@ -197,18 +217,30 @@ const getProfile = async (req, res) => {
           s.student_id,
           s.register_no,
           s.full_name,
+          s.gender,
+          s.date_of_birth,
+          s.blood_group,
           s.email,
           s.phone,
           s.status AS student_status,
           b.label AS batch_label,
           p.programme_code,
           p.name AS programme_name,
+          dept.name AS department_name,
           d.name AS degree_name,
           d.level AS degree_level,
-          ay.label AS academic_year_label
+          ay.label AS academic_year_label,
+          (
+            SELECT sec.section_code
+            FROM enrollments e
+            JOIN sections sec ON sec.section_id = e.section_id
+            WHERE e.student_id = s.student_id
+            LIMIT 1
+          ) AS section_code
         FROM students s
         LEFT JOIN batches b ON b.batch_id = s.batch_id
         LEFT JOIN programmes p ON p.programme_id = b.programme_id
+        LEFT JOIN departments dept ON dept.department_id = p.department_id
         LEFT JOIN degrees d ON d.degree_id = p.degree_id
         LEFT JOIN academic_years ay ON ay.academic_year_id = b.start_year_id
         WHERE s.student_id = ?
@@ -223,15 +255,24 @@ const getProfile = async (req, res) => {
           register_no: s.register_no,
           name: s.full_name,
           full_name: s.full_name,
+          gender: s.gender || profileData.gender,
+          date_of_birth: s.date_of_birth || profileData.date_of_birth,
+          blood_group: s.blood_group || profileData.blood_group,
           email: s.email || profileData.email,
           phone: s.phone,
           student_status: s.student_status,
           batch_label: s.batch_label,
+          batch: s.batch_label,
           programme_name: s.programme_name,
+          programme: s.programme_name,
           programme_code: s.programme_code,
+          department_name: s.department_name,
+          department: s.department_name,
           degree_name: s.degree_name,
           degree_level: s.degree_level,
           academic_year_label: s.academic_year_label,
+          section_code: s.section_code || "A",
+          section: s.section_code || "A",
         };
       }
     } else if (user.role === "FACULTY" && user.faculty_id) {
@@ -240,6 +281,12 @@ const getProfile = async (req, res) => {
           f.faculty_id,
           f.employee_code,
           f.full_name,
+          f.gender,
+          f.date_of_birth,
+          f.blood_group,
+          f.joining_year,
+          f.in_charge_class,
+          f.phone,
           f.email,
           des.name AS designation,
           d.name AS department_name,
@@ -259,11 +306,20 @@ const getProfile = async (req, res) => {
           ...profileData,
           faculty_id: f.faculty_id,
           employee_code: f.employee_code,
+          employeeId: f.employee_code,
           name: f.full_name,
           full_name: f.full_name,
+          gender: f.gender || profileData.gender,
+          date_of_birth: f.date_of_birth || profileData.date_of_birth,
+          blood_group: f.blood_group || profileData.blood_group,
+          joining_year: f.joining_year || profileData.joining_year,
+          in_charge_class: f.in_charge_class || "CSE-AIML Sec A",
+          inChargeClass: f.in_charge_class || "CSE-AIML Sec A",
+          phone: f.phone,
           email: f.email || profileData.email,
           designation: f.designation,
           department_name: f.department_name,
+          department: f.department_name,
           department_code: f.department_code,
           school_name: f.school_name,
         };
@@ -298,9 +354,40 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    const { full_name, email, username, password } = req.body || {};
+    const {
+      full_name,
+      name,
+      email,
+      username,
+      password,
+      gender,
+      date_of_birth,
+      dateOfBirth,
+      blood_group,
+      bloodGroup,
+      joining_year,
+      joiningYear,
+      employee_id,
+      employeeId,
+    } = req.body || {};
 
-    if (!full_name && !email && !username && !password) {
+    const resolvedFullName = full_name || name;
+    const resolvedDob = date_of_birth || dateOfBirth;
+    const resolvedBloodGroup = blood_group || bloodGroup;
+    const resolvedJoiningYear = joining_year || joiningYear;
+    const resolvedEmployeeId = employee_id || employeeId;
+
+    if (
+      !resolvedFullName &&
+      !email &&
+      !username &&
+      !password &&
+      !gender &&
+      !resolvedDob &&
+      !resolvedBloodGroup &&
+      !resolvedJoiningYear &&
+      !resolvedEmployeeId
+    ) {
       return res.status(400).json({
         success: false,
         message: "No fields provided to update.",
@@ -351,9 +438,9 @@ const updateProfile = async (req, res) => {
     const updates = [];
     const values = [];
 
-    if (full_name !== undefined && full_name.trim()) {
+    if (resolvedFullName !== undefined && resolvedFullName.trim()) {
       updates.push("full_name = ?");
-      values.push(full_name.trim());
+      values.push(resolvedFullName.trim());
     }
 
     if (email) {
@@ -364,6 +451,31 @@ const updateProfile = async (req, res) => {
     if (username) {
       updates.push("username = ?");
       values.push(username.trim());
+    }
+
+    if (gender) {
+      updates.push("gender = ?");
+      values.push(gender.toLowerCase());
+    }
+
+    if (resolvedDob !== undefined) {
+      updates.push("date_of_birth = ?");
+      values.push(resolvedDob || null);
+    }
+
+    if (resolvedBloodGroup !== undefined) {
+      updates.push("blood_group = ?");
+      values.push(resolvedBloodGroup || null);
+    }
+
+    if (resolvedJoiningYear !== undefined) {
+      updates.push("joining_year = ?");
+      values.push(resolvedJoiningYear ? Number(resolvedJoiningYear) : null);
+    }
+
+    if (resolvedEmployeeId !== undefined) {
+      updates.push("employee_id = ?");
+      values.push(resolvedEmployeeId || null);
     }
 
     if (password) {
@@ -392,6 +504,11 @@ const updateProfile = async (req, res) => {
         user_id,
         username,
         full_name,
+        gender,
+        date_of_birth,
+        blood_group,
+        joining_year,
+        employee_id,
         email,
         role,
         faculty_id,
@@ -406,6 +523,25 @@ const updateProfile = async (req, res) => {
     );
 
     const updatedUser = updatedRows[0];
+
+    return res.status(200).json({
+      success: true,
+      message: "Admin profile updated successfully.",
+      data: {
+        user_id: updatedUser.user_id,
+        username: updatedUser.username,
+        name: updatedUser.full_name || updatedUser.username,
+        full_name: updatedUser.full_name || updatedUser.username,
+        gender: updatedUser.gender,
+        date_of_birth: updatedUser.date_of_birth,
+        blood_group: updatedUser.blood_group,
+        joining_year: updatedUser.joining_year,
+        employee_id: updatedUser.employee_id,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        is_active: updatedUser.is_active,
+      },
+    });
 
     return res.status(200).json({
       success: true,

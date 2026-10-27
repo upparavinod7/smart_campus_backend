@@ -11,6 +11,9 @@ const getMyProfile = async (req, res) => {
         s.student_id,
         s.register_no,
         s.full_name,
+        s.gender,
+        s.date_of_birth,
+        s.blood_group,
         s.email,
         s.phone,
         s.status AS student_status,
@@ -23,6 +26,8 @@ const getMyProfile = async (req, res) => {
         p.name AS programme_name,
         p.duration_years,
 
+        dept.name AS department_name,
+
         d.degree_id,
         d.code AS degree_code,
         d.name AS degree_name,
@@ -31,7 +36,15 @@ const getMyProfile = async (req, res) => {
         ay.academic_year_id,
         ay.label AS academic_year_label,
         ay.start_date AS academic_year_start,
-        ay.end_date AS academic_year_end
+        ay.end_date AS academic_year_end,
+
+        (
+          SELECT sec.section_code
+          FROM enrollments e
+          JOIN sections sec ON sec.section_id = e.section_id
+          WHERE e.student_id = s.student_id
+          LIMIT 1
+        ) AS section_code
 
       FROM users u
       INNER JOIN students s
@@ -40,6 +53,8 @@ const getMyProfile = async (req, res) => {
         ON b.batch_id = s.batch_id
       LEFT JOIN programmes p
         ON p.programme_id = b.programme_id
+      LEFT JOIN departments dept
+        ON dept.department_id = p.department_id
       LEFT JOIN degrees d
         ON d.degree_id = p.degree_id
       LEFT JOIN academic_years ay
