@@ -22,6 +22,7 @@ const timetableRoutes = require("./timetable.routes");
 const academicYearRoutes = require("./academicYear.routes");
 const academicTermRoutes = require("./academicTerm.routes");
 const enrollmentRoutes = require("./enrollment.routes");
+const designationRoutes = require("./designation.routes");
 
 const router = express.Router();
 
@@ -42,7 +43,9 @@ router.use("/admin", adminRoutes);
 // Admin student management
 router.use("/students", studentRoutes);
 
-// Staff management
+// Staff management & reference catalogs
+router.use("/designations", designationRoutes);
+router.use("/staff/designations", designationRoutes);
 router.use("/staff", staffRoutes);
 
 // Academic Hierarchy: School -> Department -> Program -> Batch -> Section

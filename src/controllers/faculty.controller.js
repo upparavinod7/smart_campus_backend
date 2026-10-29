@@ -1,27 +1,84 @@
 const pool = require("../config/mysql");
+const bcrypt = require("bcryptjs");
+
+const ALLOWED_GENDERS = ["male", "female", "other"];
 
 // GET /api/v1/faculty
 const getFaculty = async (req, res) => {
   try {
-    const [faculty] = await pool.query(`
-            SELECT
-                faculty_id,
-                employee_code,
-                full_name,
-                email,
-                designation_id,
-                school_id,
-                department_id,
-                is_active,
-                created_at,
-                updated_at
-            FROM faculty
-            ORDER BY faculty_id ASC
-        `);
+    const { school_id, department_id, designation_id, is_active, search, q } = req.query || {};
+    const searchTerm = search || q;
+
+    const conditions = [];
+    const params = [];
+
+    if (school_id !== undefined && school_id !== "") {
+      conditions.push("f.school_id = ?");
+      params.push(Number(school_id));
+    }
+
+    if (department_id !== undefined && department_id !== "") {
+      conditions.push("f.department_id = ?");
+      params.push(Number(department_id));
+    }
+
+    if (designation_id !== undefined && designation_id !== "") {
+      conditions.push("f.designation_id = ?");
+      params.push(Number(designation_id));
+    }
+
+    if (is_active !== undefined && is_active !== "") {
+      const activeVal = is_active === "true" || is_active === "1" ? 1 : 0;
+      conditions.push("f.is_active = ?");
+      params.push(activeVal);
+    }
+
+    if (searchTerm) {
+      conditions.push("(f.full_name LIKE ? OR f.employee_code LIKE ? OR f.email LIKE ? OR dept.name LIKE ?)");
+      const pattern = `%${searchTerm.trim()}%`;
+      params.push(pattern, pattern, pattern, pattern);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const [faculty] = await pool.query(
+      `
+      SELECT
+          f.faculty_id,
+          f.employee_code,
+          f.full_name,
+          f.gender,
+          f.date_of_birth,
+          f.blood_group,
+          f.joining_year,
+          f.in_charge_class,
+          f.phone,
+          f.email,
+          f.designation_id,
+          d.name AS designation_name,
+          f.school_id,
+          s.code AS school_code,
+          s.name AS school_name,
+          f.department_id,
+          dept.name AS department_name,
+          dept.code AS department_code,
+          f.is_active,
+          f.created_at,
+          f.updated_at
+      FROM faculty f
+      LEFT JOIN designations d ON f.designation_id = d.designation_id
+      LEFT JOIN schools s ON f.school_id = s.school_id
+      LEFT JOIN departments dept ON f.department_id = dept.department_id
+      ${whereClause}
+      ORDER BY f.faculty_id ASC
+      `,
+      params,
+    );
 
     return res.status(200).json({
       success: true,
       message: "Faculty retrieved successfully",
+      count: faculty.length,
       data: faculty,
     });
   } catch (error) {
@@ -41,21 +98,35 @@ const getFacultyById = async (req, res) => {
 
     const [faculty] = await pool.query(
       `
-            SELECT
-                faculty_id,
-                employee_code,
-                full_name,
-                email,
-                designation_id,
-                school_id,
-                department_id,
-                is_active,
-                created_at,
-                updated_at
-            FROM faculty
-            WHERE faculty_id = ?
-            LIMIT 1
-            `,
+      SELECT
+          f.faculty_id,
+          f.employee_code,
+          f.full_name,
+          f.gender,
+          f.date_of_birth,
+          f.blood_group,
+          f.joining_year,
+          f.in_charge_class,
+          f.phone,
+          f.email,
+          f.designation_id,
+          d.name AS designation_name,
+          f.school_id,
+          s.code AS school_code,
+          s.name AS school_name,
+          f.department_id,
+          dept.name AS department_name,
+          dept.code AS department_code,
+          f.is_active,
+          f.created_at,
+          f.updated_at
+      FROM faculty f
+      LEFT JOIN designations d ON f.designation_id = d.designation_id
+      LEFT JOIN schools s ON f.school_id = s.school_id
+      LEFT JOIN departments dept ON f.department_id = dept.department_id
+      WHERE f.faculty_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -83,15 +154,24 @@ const getFacultyById = async (req, res) => {
 
 // POST /api/v1/faculty
 const createFaculty = async (req, res) => {
+  let connection;
   try {
     const {
       employee_code,
       full_name,
       email,
+      phone,
+      gender,
+      date_of_birth,
+      blood_group,
+      joining_year,
+      in_charge_class,
       designation_id,
       school_id,
       department_id,
       is_active,
+      username,
+      password,
     } = req.body;
 
     if (!employee_code || !full_name || !school_id) {
@@ -101,15 +181,20 @@ const createFaculty = async (req, res) => {
       });
     }
 
+    const trimmedEmpCode = String(employee_code).trim();
+    const trimmedFullName = String(full_name).trim();
+    const trimmedEmail = email ? String(email).trim() : null;
+    const trimmedPhone = phone ? String(phone).trim() : null;
+
     // Check duplicate employee code
     const [existingEmployee] = await pool.query(
       `
-            SELECT faculty_id
-            FROM faculty
-            WHERE employee_code = ?
-            LIMIT 1
-            `,
-      [employee_code],
+      SELECT faculty_id
+      FROM faculty
+      WHERE employee_code = ?
+      LIMIT 1
+      `,
+      [trimmedEmpCode],
     );
 
     if (existingEmployee.length > 0) {
@@ -120,15 +205,15 @@ const createFaculty = async (req, res) => {
     }
 
     // Check duplicate email if provided
-    if (email) {
+    if (trimmedEmail) {
       const [existingEmail] = await pool.query(
         `
-                SELECT faculty_id
-                FROM faculty
-                WHERE email = ?
-                LIMIT 1
-                `,
-        [email],
+        SELECT faculty_id
+        FROM faculty
+        WHERE email = ?
+        LIMIT 1
+        `,
+        [trimmedEmail],
       );
 
       if (existingEmail.length > 0) {
@@ -142,12 +227,12 @@ const createFaculty = async (req, res) => {
     // Check school
     const [school] = await pool.query(
       `
-            SELECT school_id
-            FROM schools
-            WHERE school_id = ?
-            LIMIT 1
-            `,
-      [school_id],
+      SELECT school_id
+      FROM schools
+      WHERE school_id = ?
+      LIMIT 1
+      `,
+      [Number(school_id)],
     );
 
     if (school.length === 0) {
@@ -161,12 +246,12 @@ const createFaculty = async (req, res) => {
     if (designation_id) {
       const [designation] = await pool.query(
         `
-                SELECT designation_id
-                FROM designations
-                WHERE designation_id = ?
-                LIMIT 1
-                `,
-        [designation_id],
+        SELECT designation_id
+        FROM designations
+        WHERE designation_id = ?
+        LIMIT 1
+        `,
+        [Number(designation_id)],
       );
 
       if (designation.length === 0) {
@@ -181,12 +266,12 @@ const createFaculty = async (req, res) => {
     if (department_id) {
       const [department] = await pool.query(
         `
-                SELECT department_id
-                FROM departments
-                WHERE department_id = ?
-                LIMIT 1
-                `,
-        [department_id],
+        SELECT department_id, school_id
+        FROM departments
+        WHERE department_id = ?
+        LIMIT 1
+        `,
+        [Number(department_id)],
       );
 
       if (department.length === 0) {
@@ -195,61 +280,196 @@ const createFaculty = async (req, res) => {
           message: "Invalid department_id",
         });
       }
+
+      if (Number(department[0].school_id) !== Number(school_id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected department does not belong to the selected school",
+        });
+      }
     }
 
-    const activeStatus = is_active === undefined ? 1 : is_active;
+    // Gender validation
+    let normalizedGender = null;
+    if (gender) {
+      const lowerGender = String(gender).toLowerCase().trim();
+      if (!ALLOWED_GENDERS.includes(lowerGender)) {
+        return res.status(400).json({
+          success: false,
+          message: `gender must be one of: ${ALLOWED_GENDERS.join(", ")}`,
+        });
+      }
+      normalizedGender = lowerGender;
+    }
 
-    const [result] = await pool.query(
+    // Date of birth validation
+    let formattedDob = null;
+    if (date_of_birth) {
+      const parsedDate = new Date(date_of_birth);
+      if (isNaN(parsedDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid date_of_birth format",
+        });
+      }
+      formattedDob = date_of_birth;
+    }
+
+    const formattedBloodGroup = blood_group ? String(blood_group).trim().toUpperCase() : null;
+    const activeStatus = is_active === undefined ? 1 : (is_active ? 1 : 0);
+    const parsedJoiningYear = joining_year ? Number(joining_year) : null;
+    const formattedInCharge = in_charge_class ? String(in_charge_class).trim() : null;
+
+    // Prepare linked user credentials
+    const targetUsername = username ? String(username).trim() : trimmedEmpCode;
+    const targetEmail = trimmedEmail || `${targetUsername.toLowerCase()}@faculty.smartcampus.local`;
+
+    // Check if user already exists
+    const [existingUser] = await pool.query(
+      `SELECT user_id, username, email FROM users WHERE username = ? OR email = ? LIMIT 1`,
+      [targetUsername, targetEmail],
+    );
+
+    if (existingUser.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: existingUser[0].username === targetUsername
+          ? "A user account with this username already exists"
+          : "A user account with this email already exists",
+      });
+    }
+
+    const rawPassword = password || "Faculty@123";
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
+
+    // Atomic transaction: Faculty + User
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const [result] = await connection.query(
       `
-            INSERT INTO faculty
-                (
-                    employee_code,
-                    full_name,
-                    email,
-                    designation_id,
-                    school_id,
-                    department_id,
-                    is_active
-                )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            `,
+      INSERT INTO faculty
+          (
+              employee_code,
+              full_name,
+              gender,
+              date_of_birth,
+              blood_group,
+              joining_year,
+              in_charge_class,
+              phone,
+              email,
+              designation_id,
+              school_id,
+              department_id,
+              is_active
+          )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
       [
-        employee_code,
-        full_name,
-        email || null,
-        designation_id || null,
-        school_id,
-        department_id || null,
+        trimmedEmpCode,
+        trimmedFullName,
+        normalizedGender,
+        formattedDob,
+        formattedBloodGroup,
+        parsedJoiningYear,
+        formattedInCharge,
+        trimmedPhone,
+        trimmedEmail,
+        designation_id ? Number(designation_id) : null,
+        Number(school_id),
+        department_id ? Number(department_id) : null,
         activeStatus,
       ],
     );
+
+    const newFacultyId = result.insertId;
+
+    // Create linked user account
+    await connection.query(
+      `
+      INSERT INTO users
+          (
+              username,
+              full_name,
+              gender,
+              date_of_birth,
+              blood_group,
+              joining_year,
+              employee_id,
+              email,
+              password_hash,
+              role,
+              faculty_id,
+              is_active
+          )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FACULTY', ?, ?)
+      `,
+      [
+        targetUsername,
+        trimmedFullName,
+        normalizedGender,
+        formattedDob,
+        formattedBloodGroup,
+        parsedJoiningYear,
+        trimmedEmpCode,
+        targetEmail,
+        passwordHash,
+        newFacultyId,
+        activeStatus,
+      ],
+    );
+
+    await connection.commit();
 
     return res.status(201).json({
       success: true,
       message: "Faculty member created successfully",
       data: {
-        faculty_id: result.insertId,
-        employee_code,
-        full_name,
-        email: email || null,
-        designation_id: designation_id || null,
-        school_id,
-        department_id: department_id || null,
+        faculty_id: newFacultyId,
+        employee_code: trimmedEmpCode,
+        full_name: trimmedFullName,
+        gender: normalizedGender,
+        date_of_birth: formattedDob,
+        blood_group: formattedBloodGroup,
+        joining_year: parsedJoiningYear,
+        in_charge_class: formattedInCharge,
+        phone: trimmedPhone,
+        email: trimmedEmail,
+        designation_id: designation_id ? Number(designation_id) : null,
+        school_id: Number(school_id),
+        department_id: department_id ? Number(department_id) : null,
         is_active: activeStatus,
+        username: targetUsername,
       },
     });
   } catch (error) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+    }
     console.error("Create faculty error:", error);
+
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "A faculty member with these unique details already exists",
+      });
+    }
 
     return res.status(500).json({
       success: false,
       message: "Internal server error",
     });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 };
 
 // PUT /api/v1/faculty/:id
 const updateFaculty = async (req, res) => {
+  let connection;
   try {
     const { id } = req.params;
 
@@ -257,19 +477,26 @@ const updateFaculty = async (req, res) => {
       employee_code,
       full_name,
       email,
+      phone,
+      gender,
+      date_of_birth,
+      blood_group,
+      joining_year,
+      in_charge_class,
       designation_id,
       school_id,
       department_id,
       is_active,
+      username,
     } = req.body;
 
     const [existingFaculty] = await pool.query(
       `
-            SELECT *
-            FROM faculty
-            WHERE faculty_id = ?
-            LIMIT 1
-            `,
+      SELECT *
+      FROM faculty
+      WHERE faculty_id = ?
+      LIMIT 1
+      `,
       [id],
     );
 
@@ -282,15 +509,11 @@ const updateFaculty = async (req, res) => {
 
     const faculty = existingFaculty[0];
 
+    const targetSchoolId = school_id !== undefined ? Number(school_id) : faculty.school_id;
     if (school_id !== undefined) {
       const [school] = await pool.query(
-        `
-                SELECT school_id
-                FROM schools
-                WHERE school_id = ?
-                LIMIT 1
-                `,
-        [school_id],
+        `SELECT school_id FROM schools WHERE school_id = ? LIMIT 1`,
+        [targetSchoolId],
       );
 
       if (school.length === 0) {
@@ -301,15 +524,10 @@ const updateFaculty = async (req, res) => {
       }
     }
 
-    if (designation_id !== undefined && designation_id !== null) {
+    if (designation_id !== undefined && designation_id !== null && designation_id !== "") {
       const [designation] = await pool.query(
-        `
-                SELECT designation_id
-                FROM designations
-                WHERE designation_id = ?
-                LIMIT 1
-                `,
-        [designation_id],
+        `SELECT designation_id FROM designations WHERE designation_id = ? LIMIT 1`,
+        [Number(designation_id)],
       );
 
       if (designation.length === 0) {
@@ -320,15 +538,14 @@ const updateFaculty = async (req, res) => {
       }
     }
 
-    if (department_id !== undefined && department_id !== null) {
+    const targetDeptId = department_id !== undefined
+      ? (department_id ? Number(department_id) : null)
+      : faculty.department_id;
+
+    if (targetDeptId) {
       const [department] = await pool.query(
-        `
-                SELECT department_id
-                FROM departments
-                WHERE department_id = ?
-                LIMIT 1
-                `,
-        [department_id],
+        `SELECT department_id, school_id FROM departments WHERE department_id = ? LIMIT 1`,
+        [targetDeptId],
       );
 
       if (department.length === 0) {
@@ -337,34 +554,100 @@ const updateFaculty = async (req, res) => {
           message: "Invalid department_id",
         });
       }
+
+      if (Number(department[0].school_id) !== targetSchoolId) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected department does not belong to the selected school",
+        });
+      }
     }
 
+    // Gender validation
+    let normalizedGender = faculty.gender;
+    if (gender !== undefined) {
+      if (gender === null || gender === "") {
+        normalizedGender = null;
+      } else {
+        const lowerGender = String(gender).toLowerCase().trim();
+        if (!ALLOWED_GENDERS.includes(lowerGender)) {
+          return res.status(400).json({
+            success: false,
+            message: `gender must be one of: ${ALLOWED_GENDERS.join(", ")}`,
+          });
+        }
+        normalizedGender = lowerGender;
+      }
+    }
+
+    // Date of birth validation
+    let formattedDob = faculty.date_of_birth;
+    if (date_of_birth !== undefined) {
+      if (date_of_birth === null || date_of_birth === "") {
+        formattedDob = null;
+      } else {
+        const parsedDate = new Date(date_of_birth);
+        if (isNaN(parsedDate.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid date_of_birth format",
+          });
+        }
+        formattedDob = date_of_birth;
+      }
+    }
+
+    const formattedBloodGroup = blood_group !== undefined
+      ? (blood_group ? String(blood_group).trim().toUpperCase() : null)
+      : faculty.blood_group;
+
     const updatedFaculty = {
-      employee_code: employee_code ?? faculty.employee_code,
-      full_name: full_name ?? faculty.full_name,
-      email: email ?? faculty.email,
-      designation_id: designation_id ?? faculty.designation_id,
-      school_id: school_id ?? faculty.school_id,
-      department_id: department_id ?? faculty.department_id,
-      is_active: is_active ?? faculty.is_active,
+      employee_code: employee_code !== undefined ? String(employee_code).trim() : faculty.employee_code,
+      full_name: full_name !== undefined ? String(full_name).trim() : faculty.full_name,
+      email: email !== undefined ? (email ? String(email).trim() : null) : faculty.email,
+      phone: phone !== undefined ? (phone ? String(phone).trim() : null) : faculty.phone,
+      gender: normalizedGender,
+      date_of_birth: formattedDob,
+      blood_group: formattedBloodGroup,
+      joining_year: joining_year !== undefined ? (joining_year ? Number(joining_year) : null) : faculty.joining_year,
+      in_charge_class: in_charge_class !== undefined ? (in_charge_class ? String(in_charge_class).trim() : null) : faculty.in_charge_class,
+      designation_id: designation_id !== undefined ? (designation_id ? Number(designation_id) : null) : faculty.designation_id,
+      school_id: targetSchoolId,
+      department_id: targetDeptId,
+      is_active: is_active !== undefined ? (is_active ? 1 : 0) : faculty.is_active,
     };
 
-    await pool.query(
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    await connection.query(
       `
-            UPDATE faculty
-            SET
-                employee_code = ?,
-                full_name = ?,
-                email = ?,
-                designation_id = ?,
-                school_id = ?,
-                department_id = ?,
-                is_active = ?
-            WHERE faculty_id = ?
-            `,
+      UPDATE faculty
+      SET
+          employee_code = ?,
+          full_name = ?,
+          gender = ?,
+          date_of_birth = ?,
+          blood_group = ?,
+          joining_year = ?,
+          in_charge_class = ?,
+          phone = ?,
+          email = ?,
+          designation_id = ?,
+          school_id = ?,
+          department_id = ?,
+          is_active = ?
+      WHERE faculty_id = ?
+      `,
       [
         updatedFaculty.employee_code,
         updatedFaculty.full_name,
+        updatedFaculty.gender,
+        updatedFaculty.date_of_birth,
+        updatedFaculty.blood_group,
+        updatedFaculty.joining_year,
+        updatedFaculty.in_charge_class,
+        updatedFaculty.phone,
         updatedFaculty.email,
         updatedFaculty.designation_id,
         updatedFaculty.school_id,
@@ -375,16 +658,47 @@ const updateFaculty = async (req, res) => {
     );
 
     // Synchronize linked users table
-    await pool.query(
+    const userUpdates = [
+      "full_name = ?",
+      "gender = ?",
+      "date_of_birth = ?",
+      "blood_group = ?",
+      "joining_year = ?",
+      "employee_id = ?",
+      "is_active = ?",
+    ];
+    const userParams = [
+      updatedFaculty.full_name,
+      updatedFaculty.gender,
+      updatedFaculty.date_of_birth,
+      updatedFaculty.blood_group,
+      updatedFaculty.joining_year,
+      updatedFaculty.employee_code,
+      updatedFaculty.is_active,
+    ];
+
+    if (updatedFaculty.email) {
+      userUpdates.push("email = ?");
+      userParams.push(updatedFaculty.email);
+    }
+
+    if (username) {
+      userUpdates.push("username = ?");
+      userParams.push(String(username).trim());
+    }
+
+    userParams.push(id);
+
+    await connection.query(
       `
       UPDATE users
-      SET
-        email = ?,
-        is_active = ?
+      SET ${userUpdates.join(", ")}
       WHERE faculty_id = ?
       `,
-      [updatedFaculty.email, updatedFaculty.is_active, id],
+      userParams,
     );
+
+    await connection.commit();
 
     return res.status(200).json({
       success: true,
@@ -395,68 +709,97 @@ const updateFaculty = async (req, res) => {
       },
     });
   } catch (error) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+    }
     console.error("Update faculty error:", error);
+
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "A faculty member with these unique details already exists",
+      });
+    }
 
     return res.status(500).json({
       success: false,
       message: "Internal server error",
     });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 };
 
 // DELETE /api/v1/faculty/:id
 // DELETE /api/v1/staff/t/:id
 const deleteFaculty = async (req, res) => {
-    try {
-        const { id } = req.params;
+  let connection;
+  try {
+    const { id } = req.params;
 
-        const [existingFaculty] = await pool.query(
-            `
-            SELECT faculty_id, is_active
-            FROM faculty
-            WHERE faculty_id = ?
-            LIMIT 1
-            `,
-            [id]
-        );
+    const [existingFaculty] = await pool.query(
+      `
+      SELECT faculty_id, is_active
+      FROM faculty
+      WHERE faculty_id = ?
+      LIMIT 1
+      `,
+      [id],
+    );
 
-        if (existingFaculty.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: "Faculty member not found"
-            });
-        }
-
-        if (!existingFaculty[0].is_active) {
-            return res.status(400).json({
-                success: false,
-                message: "Faculty member is already inactive"
-            });
-        }
-
-        await pool.query(
-            `
-            UPDATE faculty
-            SET is_active = 0
-            WHERE faculty_id = ?
-            `,
-            [id]
-        );
-
-        return res.status(200).json({
-            success: true,
-            message: "Faculty member deactivated successfully"
-        });
-
-    } catch (error) {
-        console.error("Deactivate faculty error:", error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
+    if (existingFaculty.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Faculty member not found",
+      });
     }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    await connection.query(
+      `
+      UPDATE faculty
+      SET is_active = 0
+      WHERE faculty_id = ?
+      `,
+      [id],
+    );
+
+    await connection.query(
+      `
+      UPDATE users
+      SET is_active = 0
+      WHERE faculty_id = ?
+      `,
+      [id],
+    );
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Faculty member deactivated successfully",
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+    }
+    console.error("Deactivate faculty error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
 };
+
 module.exports = {
   getFaculty,
   getFacultyById,
