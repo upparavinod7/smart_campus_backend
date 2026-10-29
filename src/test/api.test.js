@@ -858,7 +858,8 @@ test("FEAT-006 Faculty Management: Full CRUD Lifecycle, Duplicate Detection, and
     const verifyBody = await verifyGet.json();
     assert.equal(verifyBody.data.is_active, 0);
   } finally {
-    // Clean up created record
+    // Clean up created record and linked user
+    await pool.query("DELETE FROM users WHERE faculty_id = ?", [createdFacultyId]);
     await pool.query("DELETE FROM faculty WHERE faculty_id = ?", [createdFacultyId]);
   }
 });
@@ -4373,4 +4374,476 @@ test("Profile RBAC: Admin can view and update profile, whereas Student/Faculty a
   const updateFacultyBody = await updateFacultyRes.json();
   assert.equal(updateFacultyRes.status, 403);
   assert.equal(updateFacultyBody.success, false);
+});
+
+test("Designations Reference API: GET /api/v1/designations returns dynamic catalog", async () => {
+  // 1. Without token returns 401
+  const unauthRes = await fetch(`${baseUrl}/designations`);
+  assert.equal(unauthRes.status, 401);
+
+  // 2. With authenticated token returns 200 and dynamic array from database
+  const res = await fetch(`${baseUrl}/designations`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.success, true);
+  assert.ok(Array.isArray(body.data));
+  assert.ok(body.data.length > 0);
+  assert.ok(body.data[0].designation_id);
+  assert.ok(body.data[0].name);
+
+  // 3. Route alias /staff/designations works identically
+  const aliasRes = await fetch(`${baseUrl}/staff/designations`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const aliasBody = await aliasRes.json();
+  assert.equal(aliasRes.status, 200);
+  assert.equal(aliasBody.success, true);
+  assert.equal(aliasBody.count, body.count);
+});
+
+test("Admin Student Creation with Academic Hierarchy, Demographics & Auth Account", async () => {
+  const uniqueReg = `ACAD_REG_${Date.now()}`;
+  const studentEmail = `acad_test_${Date.now()}@joyuniversity.edu.in`;
+
+  // 1. Rejects invalid academic hierarchy: batch_id 4 belongs to programme 97, NOT 137
+  const mismatchProgRes = await fetch(`${baseUrl}/students`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      register_no: `${uniqueReg}_MISMATCH`,
+      full_name: "Mismatch Prog Student",
+      batch_id: 4,
+      programme_id: 137, // Mismatch!
+    }),
+  });
+  const mismatchProgBody = await mismatchProgRes.json();
+  assert.equal(mismatchProgRes.status, 400);
+  assert.equal(mismatchProgBody.success, false);
+  assert.match(mismatchProgBody.message, /Selected batch does not belong to the selected programme/i);
+
+  // 2. Rejects invalid section hierarchy: section_id 193 belongs to batch 69, NOT batch 4
+  const mismatchSecRes = await fetch(`${baseUrl}/students`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      register_no: `${uniqueReg}_SEC_MISMATCH`,
+      full_name: "Mismatch Sec Student",
+      batch_id: 4,
+      section_id: 193, // Mismatch!
+    }),
+  });
+  const mismatchSecBody = await mismatchSecRes.json();
+  assert.equal(mismatchSecRes.status, 400);
+  assert.equal(mismatchSecBody.success, false);
+  assert.match(mismatchSecBody.message, /Selected section does not belong to the selected batch/i);
+
+  // 3. Rejects invalid gender
+  const invalidGenderRes = await fetch(`${baseUrl}/students`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      register_no: `${uniqueReg}_INV_GENDER`,
+      full_name: "Invalid Gender Student",
+      batch_id: 4,
+      gender: "robot",
+    }),
+  });
+  const invalidGenderBody = await invalidGenderRes.json();
+  assert.equal(invalidGenderRes.status, 400);
+  assert.equal(invalidGenderBody.success, false);
+
+  // 4. Successfully creates student with full academic relationships & demographics
+  const createRes = await fetch(`${baseUrl}/students`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      register_no: uniqueReg,
+      full_name: "Full Academic Student",
+      email: studentEmail,
+      phone: "+91 9123456789",
+      school_id: 3,
+      department_id: 5,
+      programme_id: 97,
+      batch_id: 4,
+      section_id: 1,
+      gender: "male",
+      date_of_birth: "2005-04-12",
+      blood_group: "B+",
+      status: "ACTIVE",
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  const createdId = createBody.data.student_id;
+  assert.ok(createdId);
+  assert.equal(createBody.data.programme_id, 97);
+  assert.equal(createBody.data.section_id, 1);
+  assert.equal(createBody.data.section_code, "A");
+  assert.equal(createBody.data.gender, "male");
+
+  // 5. GET /api/v1/students/:id returns complete academic details
+  const getRes = await fetch(`${baseUrl}/students/${createdId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const getBody = await getRes.json();
+  assert.equal(getRes.status, 200);
+  assert.equal(getBody.success, true);
+  assert.equal(getBody.data.register_no, uniqueReg);
+  assert.equal(getBody.data.full_name, "Full Academic Student");
+  assert.equal(getBody.data.programme_id, 97);
+  assert.ok(getBody.data.programme_name);
+  assert.equal(getBody.data.department_id, 5);
+  assert.ok(getBody.data.department_name);
+  assert.equal(getBody.data.school_id, 3);
+  assert.ok(getBody.data.school_name);
+  assert.equal(getBody.data.batch_id, 4);
+  assert.equal(getBody.data.section_id, 1);
+  assert.equal(getBody.data.section_code, "A");
+  assert.equal(getBody.data.gender, "male");
+  assert.equal(getBody.data.blood_group, "B+");
+
+  // 6. Verify newly created student can log into system with default credentials
+  const loginRes = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: uniqueReg,
+      password: "Student@123",
+    }),
+  });
+  const loginBody = await loginRes.json();
+  assert.equal(loginRes.status, 200);
+  assert.equal(loginBody.success, true);
+  assert.equal(loginBody.data.role, "STUDENT");
+  assert.equal(loginBody.data.student_id, createdId);
+
+  // 7. Update student demographics and academic status
+  const updateRes = await fetch(`${baseUrl}/students/${createdId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      full_name: "Full Academic Student Renamed",
+      blood_group: "O+",
+      status: "INTERNSHIP_BREAK",
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.success, true);
+  assert.equal(updateBody.data.blood_group, "O+");
+  assert.equal(updateBody.data.status, "INTERNSHIP_BREAK");
+
+  // 8. Relational Safeguard: Deleting student with active enrollment returns 409
+  const deleteWithEnrRes = await fetch(`${baseUrl}/students/${createdId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const deleteWithEnrBody = await deleteWithEnrRes.json();
+  assert.equal(deleteWithEnrRes.status, 409);
+  assert.equal(deleteWithEnrBody.success, false);
+  assert.match(deleteWithEnrBody.message, /related records exist/i);
+
+  // 9. Remove enrollment and verify clean deletion of student & linked user
+  const pool = require("../config/mysql");
+  await pool.query("DELETE FROM enrollments WHERE student_id = ?", [createdId]);
+
+  const deleteRes = await fetch(`${baseUrl}/students/${createdId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const deleteBody = await deleteRes.json();
+  assert.equal(deleteRes.status, 200);
+  assert.equal(deleteBody.success, true);
+
+  // 10. Verify student and linked user no longer exist
+  const [remainingUser] = await pool.query("SELECT user_id FROM users WHERE username = ?", [uniqueReg]);
+  assert.equal(remainingUser.length, 0);
+});
+
+test("Degrees Module: Full CRUD Lifecycle, Level Validation & Duplicate Constraint", async () => {
+  const pool = require("../config/mysql");
+  const uniqueCode = `DEG_${Date.now()}`;
+
+  // 1. Validation: Level must be one of UG, PG, DOCTORAL, DIPLOMA
+  const invalidLevelRes = await fetch(`${baseUrl}/degrees`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      code: uniqueCode,
+      name: "Invalid Level Degree",
+      level: "INVALID_LEVEL",
+    }),
+  });
+  const invalidLevelBody = await invalidLevelRes.json();
+  assert.equal(invalidLevelRes.status, 400);
+  assert.equal(invalidLevelBody.success, false);
+
+  // 2. Create valid Degree
+  const createRes = await fetch(`${baseUrl}/degrees`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      code: uniqueCode,
+      name: "Bachelor of Technology Test",
+      level: "UG",
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  const degreeId = createBody.data.degree_id;
+  assert.ok(degreeId);
+  assert.equal(createBody.data.code, uniqueCode);
+  assert.equal(createBody.data.level, "UG");
+
+  // 3. Duplicate Code Check: Returns 409
+  const dupRes = await fetch(`${baseUrl}/degrees`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      code: uniqueCode,
+      name: "Duplicate Degree Code",
+      level: "UG",
+    }),
+  });
+  const dupBody = await dupRes.json();
+  assert.equal(dupRes.status, 409);
+  assert.equal(dupBody.success, false);
+
+  // 4. GET /api/v1/degrees/:id
+  const getRes = await fetch(`${baseUrl}/degrees/${degreeId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const getBody = await getRes.json();
+  assert.equal(getRes.status, 200);
+  assert.equal(getBody.data.code, uniqueCode);
+  assert.equal(getBody.data.name, "Bachelor of Technology Test");
+
+  // 5. PUT /api/v1/degrees/:id
+  const updateRes = await fetch(`${baseUrl}/degrees/${degreeId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      name: "Bachelor of Technology Updated",
+      level: "UG",
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.data.name, "Bachelor of Technology Updated");
+
+  // 6. DELETE /api/v1/degrees/:id
+  const deleteRes = await fetch(`${baseUrl}/degrees/${degreeId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const deleteBody = await deleteRes.json();
+  assert.equal(deleteRes.status, 200);
+  assert.equal(deleteBody.success, true);
+
+  // Cleanup verify
+  const [remaining] = await pool.query("SELECT degree_id FROM degrees WHERE degree_id = ?", [degreeId]);
+  assert.equal(remaining.length, 0);
+});
+
+test("Faculty Module: Full Demographics, Auth Sync, Default Login & Soft Deactivation", async () => {
+  const pool = require("../config/mysql");
+  const uniqueCode = `EMP_${Date.now()}`;
+  const uniqueEmail = `faculty_${Date.now()}@test.smartcampus.edu`;
+
+  // 1. Create Faculty with full demographics
+  const createRes = await fetch(`${baseUrl}/staff/t`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      employee_code: uniqueCode,
+      full_name: "Dr. Full Demographics Professor",
+      email: uniqueEmail,
+      phone: "+91-9876543210",
+      gender: "female",
+      date_of_birth: "1988-08-20",
+      blood_group: "O+",
+      joining_year: 2022,
+      in_charge_class: "Sec-A CS",
+      designation_id: 1,
+      school_id: 3,
+      department_id: 5,
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  const facultyId = createBody.data.faculty_id;
+  assert.ok(facultyId);
+  assert.equal(createBody.data.phone, "+91-9876543210");
+  assert.equal(createBody.data.gender, "female");
+  assert.equal(createBody.data.blood_group, "O+");
+  assert.equal(createBody.data.joining_year, 2022);
+  assert.equal(createBody.data.in_charge_class, "Sec-A CS");
+
+  // 2. Verify faculty can log into system with employee code and default password
+  const loginRes = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: uniqueCode,
+      password: "Faculty@123",
+    }),
+  });
+  const loginBody = await loginRes.json();
+  assert.equal(loginRes.status, 200);
+  assert.equal(loginBody.success, true);
+  assert.equal(loginBody.data.role, "FACULTY");
+  assert.equal(loginBody.data.faculty_id, facultyId);
+
+  // 3. Update faculty demographics and verify synchronized to users table
+  const updateRes = await fetch(`${baseUrl}/staff/t/${facultyId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      phone: "+91-9999888877",
+      blood_group: "AB+",
+      in_charge_class: "Sec-B CS",
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.data.phone, "+91-9999888877");
+  assert.equal(updateBody.data.blood_group, "AB+");
+  assert.equal(updateBody.data.in_charge_class, "Sec-B CS");
+
+  // 4. Soft deactivate faculty and verify synced to users table
+  const deleteRes = await fetch(`${baseUrl}/staff/t/${facultyId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const deleteBody = await deleteRes.json();
+  assert.equal(deleteRes.status, 200);
+  assert.equal(deleteBody.success, true);
+
+  // Verify is_active = 0 in faculty and users
+  const [fRow] = await pool.query("SELECT is_active FROM faculty WHERE faculty_id = ?", [facultyId]);
+  assert.equal(fRow[0].is_active, 0);
+  const [uRow] = await pool.query("SELECT is_active FROM users WHERE faculty_id = ?", [facultyId]);
+  assert.equal(uRow[0].is_active, 0);
+
+  // Clean up
+  await pool.query("DELETE FROM users WHERE faculty_id = ?", [facultyId]);
+  await pool.query("DELETE FROM faculty WHERE faculty_id = ?", [facultyId]);
+});
+
+test("Classroom Module: Department Association, Validation & Infrastructure Query Projections", async () => {
+  const pool = require("../config/mysql");
+  const uniqueRoom = `R-${Date.now().toString().slice(-4)}`;
+
+  // 1. Validation: Rejects invalid department_id
+  const invalidDeptRes = await fetch(`${baseUrl}/classrooms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      block_id: 1,
+      room_no: uniqueRoom,
+      room_type: "CLASSROOM",
+      department_id: 99999,
+      capacity: 45,
+    }),
+  });
+  const invalidDeptBody = await invalidDeptRes.json();
+  assert.equal(invalidDeptRes.status, 400);
+  assert.equal(invalidDeptBody.success, false);
+  assert.match(invalidDeptBody.message, /department/i);
+
+  // 2. Create Classroom with valid department_id
+  const createRes = await fetch(`${baseUrl}/classrooms`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      block_id: 1,
+      room_no: uniqueRoom,
+      department_id: 5,
+      room_type: "LAB",
+      capacity: 50,
+      is_active: 1,
+    }),
+  });
+  const createBody = await createRes.json();
+  assert.equal(createRes.status, 201);
+  assert.equal(createBody.success, true);
+  const roomId = createBody.data.classroom_id;
+  assert.ok(roomId);
+  assert.equal(createBody.data.department_id, 5);
+  assert.equal(createBody.data.room_type, "LAB");
+
+  // 3. GET /api/v1/classrooms/:id verifies department joins
+  const getRes = await fetch(`${baseUrl}/classrooms/${roomId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const getBody = await getRes.json();
+  assert.equal(getRes.status, 200);
+  assert.equal(getBody.data.room_no, uniqueRoom);
+  assert.equal(getBody.data.department_id, 5);
+  assert.ok(getBody.data.department_name);
+  assert.ok(getBody.data.block_name);
+
+  // 4. Update classroom
+  const updateRes = await fetch(`${baseUrl}/classrooms/${roomId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      capacity: 65,
+      room_type: "SMART_CLASSROOM",
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.data.capacity, 65);
+  assert.equal(updateBody.data.room_type, "SMART_CLASSROOM");
+
+  // 5. Clean up
+  await pool.query("DELETE FROM classrooms WHERE classroom_id = ?", [roomId]);
 });

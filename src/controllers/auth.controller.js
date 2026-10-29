@@ -271,8 +271,8 @@ const getProfile = async (req, res) => {
           degree_name: s.degree_name,
           degree_level: s.degree_level,
           academic_year_label: s.academic_year_label,
-          section_code: s.section_code || "A",
-          section: s.section_code || "A",
+          section_code: s.section_code || null,
+          section: s.section_code || null,
         };
       }
     } else if (user.role === "FACULTY" && user.faculty_id) {
@@ -313,8 +313,8 @@ const getProfile = async (req, res) => {
           date_of_birth: f.date_of_birth || profileData.date_of_birth,
           blood_group: f.blood_group || profileData.blood_group,
           joining_year: f.joining_year || profileData.joining_year,
-          in_charge_class: f.in_charge_class || "CSE-AIML Sec A",
-          inChargeClass: f.in_charge_class || "CSE-AIML Sec A",
+          in_charge_class: f.in_charge_class || null,
+          inChargeClass: f.in_charge_class || null,
           phone: f.phone,
           email: f.email || profileData.email,
           designation: f.designation,
