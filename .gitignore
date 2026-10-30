@@ -6,4 +6,5 @@ node_modules/
 npm-debug.log*
 .DS_Store
 
-test/
+/test/
+!src/test/

@@ -98,6 +98,111 @@ const login = async (req, res) => {
     });
   }
 };
+
+const adminLogin = async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Username and password are required",
+      });
+    }
+
+    const trimmedIdentifier = String(username).trim();
+
+    const [users] = await pool.query(
+      `SELECT
+      user_id,
+      username,
+      full_name,
+      email,
+      password_hash,
+      role,
+      faculty_id,
+      student_id,
+      is_active
+      FROM users
+      WHERE username = ? OR email = ?
+      LIMIT 1`,
+      [trimmedIdentifier, trimmedIdentifier],
+    );
+
+    if (users.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid administrator credentials",
+      });
+    }
+
+    const user = users[0];
+
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: "Administrator account is inactive",
+      });
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password_hash);
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid administrator credentials",
+      });
+    }
+
+    // Strict role check: only ADMIN role is permitted
+    if (user.role !== "ADMIN") {
+      return res.status(403).json({
+        success: false,
+        message: "Access restricted: only administrators may log in through the Administrator Portal",
+      });
+    }
+
+    const jti = crypto.randomUUID();
+
+    const token = jwt.sign(
+      {
+        jti,
+        user_id: user.user_id,
+        username: user.username,
+        role: user.role,
+        faculty_id: user.faculty_id,
+        student_id: user.student_id,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: process.env.JWT_EXPIRES_IN || "1d",
+      },
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Administrator authenticated successfully",
+      data: {
+        user_id: user.user_id,
+        username: user.username,
+        name: user.full_name || user.username,
+        full_name: user.full_name || user.username,
+        email: user.email,
+        role: user.role,
+        faculty_id: user.faculty_id,
+        student_id: user.student_id,
+      },
+      token,
+    });
+  } catch (error) {
+    console.error("Admin login error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
 const getMe = async (req, res) => {
   try {
     const [users] = await pool.query(
@@ -600,6 +705,7 @@ const logout = async (req, res) => {
 };
 module.exports = {
   login,
+  adminLogin,
   getMe,
   getProfile,
   updateProfile,

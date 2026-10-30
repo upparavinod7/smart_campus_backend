@@ -43,6 +43,78 @@ test("Auth Login: POST /api/v1/auth/login requires username and password", async
   assert.equal(body.message, "Username and password are required");
 });
 
+test("Dedicated Admin Auth: POST /api/v1/auth/admin/login requires credentials", async () => {
+  const res = await fetch(`${baseUrl}/auth/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+  assert.equal(body.message, "Username and password are required");
+});
+
+test("Dedicated Admin Auth: POST /api/v1/auth/admin/login rejects invalid credentials", async () => {
+  const res = await fetch(`${baseUrl}/auth/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "unknown_admin", password: "WrongPassword" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 401);
+  assert.equal(body.success, false);
+});
+
+test("Dedicated Admin Auth: POST /api/v1/auth/admin/login rejects non-admin accounts (Student/Faculty)", async () => {
+  // Attempt with student credentials
+  const studentRes = await fetch(`${baseUrl}/auth/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "J26AIM001", password: "Student@123" }),
+  });
+  const studentBody = await studentRes.json();
+  assert.equal(studentRes.status, 403);
+  assert.equal(studentBody.success, false);
+  assert.match(studentBody.message, /only administrators/i);
+
+  // Attempt with faculty credentials
+  const facultyRes = await fetch(`${baseUrl}/auth/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "FAC001", password: "Faculty@123" }),
+  });
+  const facultyBody = await facultyRes.json();
+  assert.equal(facultyRes.status, 403);
+  assert.equal(facultyBody.success, false);
+  assert.match(facultyBody.message, /only administrators/i);
+});
+
+test("Dedicated Admin Auth: POST /api/v1/auth/admin/login succeeds for ADMIN user", async () => {
+  const res = await fetch(`${baseUrl}/auth/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "Admin@123" }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.data.role, "ADMIN");
+  assert.ok(body.token);
+
+  // Also verify alias /auth/admin-login
+  const aliasRes = await fetch(`${baseUrl}/auth/admin-login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "Admin@123" }),
+  });
+  const aliasBody = await aliasRes.json();
+  assert.equal(aliasRes.status, 200);
+  assert.equal(aliasBody.success, true);
+  assert.equal(aliasBody.data.role, "ADMIN");
+  assert.ok(aliasBody.token);
+});
+
 test("Protected Route: GET /api/v1/auth/me without token returns 401", async () => {
   const res = await fetch(`${baseUrl}/auth/me`);
   const body = await res.json();
