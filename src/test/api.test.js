@@ -2930,7 +2930,7 @@ test("Hierarchical Academics: Programmes RBAC, Aliases, Filtering, and CRUD Life
 
   // 5. Create new programme returns 201 (department 5 belongs to school 3)
   const uniqueName = `Aerospace Informatics ${Date.now()}`;
-  const uniqueCode = `AI${Date.now().toString().slice(-4)}`;
+  const uniqueCode = `A${Date.now().toString().slice(-7)}`;
   const createRes = await fetch(`${baseUrl}/programs`, {
     method: "POST",
     headers: {
