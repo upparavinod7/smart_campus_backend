@@ -2,6 +2,7 @@ const express = require("express");
 
 const {
   login,
+  adminLogin,
   getMe,
   getProfile,
   updateProfile,
@@ -16,8 +17,10 @@ const router = express.Router();
 router.use(express.json());
 router.use(express.urlencoded({ extended: true }));
 
-// Public route
+// Public routes
 router.post("/login", login);
+router.post("/admin/login", adminLogin);
+router.post("/admin-login", adminLogin);
 
 // Protected routes
 router.get("/me", authenticateToken, getMe);
