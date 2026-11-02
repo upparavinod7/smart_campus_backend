@@ -335,6 +335,48 @@ test("Student CRUD Full Lifecycle: List, Create, GetById, Update, Duplicate Chec
   assert.equal(verifyBody.success, false);
 });
 
+test("Student Section Update Regression: PUT /api/v1/students/:id handles multi-enrolled student without duplicate key error", async () => {
+  const loginRes = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "Admin@123" }),
+  });
+  const loginBody = await loginRes.json();
+  const adminToken = loginBody.token;
+
+  // Student 10 has existing enrollments in sections 1, 2, and 3. Updating with section_id = 3 must not throw duplicate key error.
+  const updateRes10 = await fetch(`${baseUrl}/students/10`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      section_id: 3,
+    }),
+  });
+  const updateBody10 = await updateRes10.json();
+  assert.equal(updateRes10.status, 200);
+  assert.equal(updateBody10.success, true);
+  assert.equal(updateBody10.data.section_id, 3);
+
+  // Student 9 updating with section_id = 3 must also succeed cleanly
+  const updateRes9 = await fetch(`${baseUrl}/students/9`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminToken}`,
+    },
+    body: JSON.stringify({
+      section_id: 3,
+    }),
+  });
+  const updateBody9 = await updateRes9.json();
+  assert.equal(updateRes9.status, 200);
+  assert.equal(updateBody9.success, true);
+  assert.equal(updateBody9.data.section_id, 3);
+});
+
 // Authentication Persistence & Session Restoration Tests (fix/auth-refresh-persistence)
 test("Session Restoration: GET /api/v1/auth/me with valid token returns user identity and role", async () => {
   const res = await fetch(`${baseUrl}/auth/me`, {
@@ -2063,7 +2105,7 @@ test("Timetable Conflict Detection: Faculty, Classroom, Section conflicts (409) 
     slotBId = abuttingBody.data.slot_id;
     assert.ok(slotBId);
 
-    // 6. Update Slot A excluding itself does NOT flag self-conflict
+    // 6. Update Slot A excluding itself does NOT flag self-conflict & validates effective dates
     const updateRes = await fetch(`${baseUrl}/timetable/${slotAId}`, {
       method: "PUT",
       headers: {
@@ -2073,6 +2115,8 @@ test("Timetable Conflict Detection: Faculty, Classroom, Section conflicts (409) 
       body: JSON.stringify({
         start_time: "14:00:00",
         end_time: "15:15:00",
+        effective_from: "2026-01-01",
+        effective_to: "2026-06-30",
       }),
     });
     assert.equal(updateRes.status, 200);

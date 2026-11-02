@@ -869,25 +869,71 @@ const updateStudent = async (req, res) => {
     );
 
     // Manage section enrollment if section_id was provided
+    let returnSectionId = verifiedSectionId;
+    let returnSectionCode = verifiedSectionCode;
+
     if (verifiedSectionId) {
-      const [existingEnr] = await connection.query(
-        `SELECT enrollment_id, section_id FROM enrollments WHERE student_id = ? AND status = 'REGISTERED' LIMIT 1`,
-        [id],
+      // 1. Check if an enrollment already exists for this exact student and section
+      const [existingTargetEnr] = await connection.query(
+        `SELECT enrollment_id, status FROM enrollments WHERE student_id = ? AND section_id = ? LIMIT 1`,
+        [id, verifiedSectionId],
       );
 
-      if (existingEnr.length > 0) {
-        if (existingEnr[0].section_id !== verifiedSectionId) {
+      if (existingTargetEnr.length > 0) {
+        if (existingTargetEnr[0].status !== "REGISTERED") {
           await connection.query(
-            `UPDATE enrollments SET section_id = ? WHERE enrollment_id = ?`,
-            [verifiedSectionId, existingEnr[0].enrollment_id],
+            `UPDATE enrollments SET status = 'REGISTERED', updated_at = NOW() WHERE enrollment_id = ?`,
+            [existingTargetEnr[0].enrollment_id],
           );
         }
       } else {
-        await connection.query(
-          `INSERT INTO enrollments (student_id, section_id, registration_type, status, registered_on)
-           VALUES (?, ?, 'REGULAR', 'REGISTERED', CURDATE())`,
-          [id, verifiedSectionId],
+        // 2. Student is not yet enrolled in verifiedSectionId.
+        // Check if student is currently enrolled in another section of the same course offering
+        const [targetSecRows] = await connection.query(
+          `SELECT section_id, offering_id, batch_id FROM sections WHERE section_id = ? LIMIT 1`,
+          [verifiedSectionId],
         );
+
+        let replacedExisting = false;
+        if (targetSecRows.length > 0 && targetSecRows[0].offering_id) {
+          const [sameOfferingEnr] = await connection.query(
+            `SELECT e.enrollment_id FROM enrollments e
+             JOIN sections s ON e.section_id = s.section_id
+             WHERE e.student_id = ? AND s.offering_id = ? AND e.section_id != ?
+             LIMIT 1`,
+            [id, targetSecRows[0].offering_id, verifiedSectionId],
+          );
+
+          if (sameOfferingEnr.length > 0) {
+            await connection.query(
+              `UPDATE enrollments SET section_id = ?, status = 'REGISTERED', updated_at = NOW() WHERE enrollment_id = ?`,
+              [verifiedSectionId, sameOfferingEnr[0].enrollment_id],
+            );
+            replacedExisting = true;
+          }
+        }
+
+        if (!replacedExisting) {
+          await connection.query(
+            `INSERT INTO enrollments (student_id, section_id, registration_type, status, registered_on)
+             VALUES (?, ?, 'REGULAR', 'REGISTERED', CURDATE())`,
+            [id, verifiedSectionId],
+          );
+        }
+      }
+    } else {
+      // Section was not provided in update payload; fetch current primary section if any
+      const [currentSec] = await connection.query(
+        `SELECT sec.section_id, sec.section_code
+         FROM enrollments e
+         JOIN sections sec ON sec.section_id = e.section_id
+         WHERE e.student_id = ? AND e.status = 'REGISTERED'
+         ORDER BY e.enrollment_id DESC LIMIT 1`,
+        [id],
+      );
+      if (currentSec.length > 0) {
+        returnSectionId = currentSec[0].section_id;
+        returnSectionCode = currentSec[0].section_code;
       }
     }
 
@@ -902,8 +948,8 @@ const updateStudent = async (req, res) => {
         batch_label: batch.batch_label,
         programme_id: batch.programme_id,
         programme_name: batch.programme_name,
-        section_id: verifiedSectionId,
-        section_code: verifiedSectionCode,
+        section_id: returnSectionId,
+        section_code: returnSectionCode,
       },
     });
   } catch (error) {

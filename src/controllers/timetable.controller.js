@@ -1,5 +1,8 @@
 const pool = require("../config/mysql");
 
+const timeRegex = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * Helper to check timetable conflicts for faculty, classroom, and section.
  * Returns { conflict: true, type: string, message: string } or { conflict: false }.
@@ -20,7 +23,12 @@ const checkTimetableConflicts = async ({
     AND
     (? IS NULL OR ts.effective_from <= ?)
   `;
-  const dateParams = [effective_from, effective_from, effective_to, effective_to];
+  const dateParams = [
+    effective_from,
+    effective_from,
+    effective_to,
+    effective_to,
+  ];
 
   // 1. Check Faculty Conflict
   let facultyQuery = `
@@ -250,7 +258,8 @@ const getTimetableSlots = async (req, res) => {
       params.push(activeVal);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const [slots] = await pool.query(
       `
@@ -478,12 +487,12 @@ const createTimetableSlot = async (req, res) => {
     if (dowNum < 1 || dowNum > 7) {
       return res.status(400).json({
         success: false,
-        message: "day_of_week must be an integer between 1 (Monday) and 7 (Sunday)",
+        message:
+          "day_of_week must be an integer between 1 (Monday) and 7 (Sunday)",
       });
     }
 
     // Validate start_time and end_time
-    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
     if (!timeRegex.test(start_time) || !timeRegex.test(end_time)) {
       return res.status(400).json({
         success: false,
@@ -491,7 +500,8 @@ const createTimetableSlot = async (req, res) => {
       });
     }
 
-    const normStartTime = start_time.length === 5 ? `${start_time}:00` : start_time;
+    const normStartTime =
+      start_time.length === 5 ? `${start_time}:00` : start_time;
     const normEndTime = end_time.length === 5 ? `${end_time}:00` : end_time;
 
     if (normEndTime <= normStartTime) {
@@ -507,7 +517,6 @@ const createTimetableSlot = async (req, res) => {
         ? String(effective_to).trim()
         : null;
 
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!normEffFrom || !dateRegex.test(normEffFrom)) {
       return res.status(400).json({
         success: false,
@@ -804,7 +813,6 @@ const updateTimetableSlot = async (req, res) => {
       newDow = dowNum;
     }
 
-    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
     if (start_time !== undefined) {
       if (!timeRegex.test(start_time)) {
         return res.status(400).json({
