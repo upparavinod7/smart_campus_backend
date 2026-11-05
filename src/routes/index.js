@@ -23,6 +23,7 @@ const academicYearRoutes = require("./academicYear.routes");
 const academicTermRoutes = require("./academicTerm.routes");
 const enrollmentRoutes = require("./enrollment.routes");
 const designationRoutes = require("./designation.routes");
+const academicRoutes = require("./academic.routes");
 
 const router = express.Router();
 
@@ -115,6 +116,9 @@ router.use("/academics/timetable", timetableRoutes);
 // Faculty Portal
 router.use("/faculty", facultyPortalRoutes);
 router.use("/faculty-portal", facultyPortalRoutes);
+
+// Academic Module (Study Materials, Question Bank, Quizzes & Attempts)
+router.use("/academic", academicRoutes);
 
 // Fallback for unmatched /api/v1 routes - ensures API returns JSON, never HTML
 router.use((req, res) => {

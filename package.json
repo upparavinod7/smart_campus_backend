@@ -4,8 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test src/test/api.test.js",
+    "test": "node --test src/test/api.test.js src/test/academic.test.js",
     "test:api": "node --test src/test/api.test.js",
+    "test:academic": "node --test src/test/academic.test.js",
     "test:coverage": "node --test --experimental-test-coverage src/test/api.test.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",

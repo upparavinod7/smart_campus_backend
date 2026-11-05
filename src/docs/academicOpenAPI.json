@@ -1,0 +1,592 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Smart Campus Academic Module API",
+    "description": "Enterprise Academic Module backend API supporting Study Materials, Material Progress Tracking, Question Bank, Quiz Management, Server-Enforced Quiz Engine, Score Corrections, and Four-Field Event Audit Ledger.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/api/v1/academic",
+      "description": "Academic Module Base Path"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "ApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "data": { "type": "object" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "message": { "type": "string" },
+          "code": { "type": "string" },
+          "uncompleted_materials": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "SubjectStaffAssignment": {
+        "type": "object",
+        "properties": {
+          "assignment_id": { "type": "integer" },
+          "subject_id": { "type": "integer" },
+          "faculty_id": { "type": "integer" },
+          "role": { "type": "string", "enum": ["Subject Staff", "Co-Teacher", "Lab Assistant"] },
+          "assigned_by": { "type": "integer" }
+        }
+      },
+      "Topic": {
+        "type": "object",
+        "properties": {
+          "topic_id": { "type": "integer" },
+          "subject_id": { "type": "integer" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "position": { "type": "integer" },
+          "quiz_enabled": { "type": "boolean" }
+        }
+      },
+      "StudyMaterial": {
+        "type": "object",
+        "properties": {
+          "material_id": { "type": "integer" },
+          "topic_id": { "type": "integer" },
+          "type": { "type": "string", "enum": ["PDF", "Video", "Slide", "Link", "Notes"] },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "file_ref": { "type": "string" },
+          "version": { "type": "integer" },
+          "status": { "type": "string", "enum": ["Draft", "Published"] },
+          "required_flag": { "type": "boolean" },
+          "position": { "type": "integer" },
+          "mime_type": { "type": "string" },
+          "file_size": { "type": "integer" },
+          "virus_scan_status": { "type": "string", "enum": ["PENDING", "CLEAN", "INFECTED", "SKIPPED"] }
+        }
+      },
+      "Question": {
+        "type": "object",
+        "properties": {
+          "question_id": { "type": "integer" },
+          "topic_id": { "type": "integer" },
+          "type": { "type": "string", "enum": ["MCQ", "TrueFalse", "ShortAnswer"] },
+          "text": { "type": "string" },
+          "options": { "type": "array", "items": { "type": "string" } },
+          "answer": { "type": "string" },
+          "explanation": { "type": "string" },
+          "marks": { "type": "number" },
+          "difficulty": { "type": "string", "enum": ["Easy", "Medium", "Hard"] },
+          "status": { "type": "string", "enum": ["Draft", "Approved", "Archived"] }
+        }
+      },
+      "Quiz": {
+        "type": "object",
+        "properties": {
+          "quiz_id": { "type": "integer" },
+          "topic_id": { "type": "integer" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "version": { "type": "integer" },
+          "time_limit": { "type": "integer", "description": "Duration in minutes; 0 indicates unlimited" },
+          "pass_mark": { "type": "number", "description": "Pass cutoff percentage" },
+          "max_attempts": { "type": "integer" },
+          "open_at": { "type": "string", "format": "date-time" },
+          "close_at": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "enum": ["Draft", "Published", "Archived"] },
+          "shuffle_questions": { "type": "boolean" },
+          "shuffle_options": { "type": "boolean" }
+        }
+      },
+      "QuizAttempt": {
+        "type": "object",
+        "properties": {
+          "attempt_id": { "type": "integer" },
+          "quiz_id": { "type": "integer" },
+          "person_id": { "type": "integer" },
+          "attempt_number": { "type": "integer" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "expires_at": { "type": "string", "format": "date-time" },
+          "submitted_at": { "type": "string", "format": "date-time" },
+          "score": { "type": "number" },
+          "max_score": { "type": "number" },
+          "percentage": { "type": "number" },
+          "result": { "type": "string", "enum": ["PASSED", "FAILED", "PENDING"] },
+          "status": { "type": "string", "enum": ["IN_PROGRESS", "SUBMITTED", "TIMED_OUT", "CANCELLED"] },
+          "remaining_seconds": { "type": "integer" },
+          "questions": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "ScoreCorrection": {
+        "type": "object",
+        "properties": {
+          "correction_id": { "type": "integer" },
+          "attempt_id": { "type": "integer" },
+          "previous_score": { "type": "number" },
+          "new_score": { "type": "number" },
+          "reason_code": { "type": "string" },
+          "justification": { "type": "string" },
+          "corrected_by": { "type": "integer" }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/subjects": {
+      "get": {
+        "summary": "List subjects tailored to role (Admin: all, Faculty: assigned/dept, Student: enrolled)",
+        "responses": {
+          "200": { "description": "Subject list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiResponse" } } } }
+        }
+      }
+    },
+    "/subjects/{id}": {
+      "get": {
+        "summary": "Get subject details with staff assignments and topics count",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Subject details" }, "404": { "description": "Subject not found" } }
+      }
+    },
+    "/subjects/{id}/staff": {
+      "post": {
+        "summary": "Assign faculty member to subject (Subject Staff, Co-Teacher, Lab Assistant)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["faculty_id"],
+                "properties": {
+                  "faculty_id": { "type": "integer" },
+                  "role": { "type": "string", "enum": ["Subject Staff", "Co-Teacher", "Lab Assistant"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Staff assigned" }, "400": { "description": "Validation error" } }
+      }
+    },
+    "/subjects/{id}/staff/{assignmentId}": {
+      "delete": {
+        "summary": "Remove faculty assignment from subject",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "assignmentId", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Staff assignment removed" } }
+      }
+    },
+    "/subjects/{id}/topics": {
+      "get": {
+        "summary": "List topics for subject ordered by position with material & quiz summary",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "List of topics" } }
+      },
+      "post": {
+        "summary": "Create new academic topic for subject",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string" },
+                  "description": { "type": "string" },
+                  "position": { "type": "integer" },
+                  "quiz_enabled": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Topic created" } }
+      }
+    },
+    "/subjects/{id}/topics/reorder": {
+      "put": {
+        "summary": "Reorder topics for a subject atomically",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "topics": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": { "topic_id": { "type": "integer" }, "position": { "type": "integer" } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Topics reordered" } }
+      }
+    },
+    "/topics/{id}": {
+      "get": {
+        "summary": "Get topic details",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Topic details" } }
+      },
+      "put": {
+        "summary": "Update topic details",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Topic updated" } }
+      },
+      "delete": {
+        "summary": "Delete topic and associated materials/quizzes",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Topic deleted" } }
+      }
+    },
+    "/topics/{id}/materials": {
+      "get": {
+        "summary": "List study materials for topic (published only for students with progress)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Materials list" } }
+      },
+      "post": {
+        "summary": "Upload or create study material (PDF, Video, Slide, Link, Notes)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["title", "type"],
+                "properties": {
+                  "title": { "type": "string" },
+                  "type": { "type": "string", "enum": ["PDF", "Video", "Slide", "Link", "Notes"] },
+                  "description": { "type": "string" },
+                  "required_flag": { "type": "boolean" },
+                  "status": { "type": "string", "enum": ["Draft", "Published"] },
+                  "file": { "type": "string", "format": "binary" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Material created" } }
+      }
+    },
+    "/materials/{id}": {
+      "get": {
+        "summary": "Get material details and versions",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Material details" } }
+      },
+      "put": {
+        "summary": "Update material details or upload new version",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Material updated" } }
+      },
+      "delete": {
+        "summary": "Delete study material",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Material deleted" } }
+      }
+    },
+    "/materials/{id}/publish": {
+      "post": {
+        "summary": "Publish or unpublish study material",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "status": { "type": "string", "enum": ["Draft", "Published"] } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Status updated" } }
+      }
+    },
+    "/materials/{id}/progress": {
+      "put": {
+        "summary": "Log student reading/watching progress on material",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+                  "status": { "type": "string", "enum": ["NOT_STARTED", "IN_PROGRESS", "COMPLETED"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Progress saved" } }
+      }
+    },
+    "/materials/{id}/download": {
+      "get": {
+        "summary": "Download study material binary securely",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "File stream", "content": { "application/octet-stream": {} } },
+          "404": { "description": "File not found" }
+        }
+      }
+    },
+    "/topics/{id}/quiz": {
+      "get": {
+        "summary": "Get quiz settings, version, and question counts for topic",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Quiz settings" } }
+      },
+      "put": {
+        "summary": "Configure topic quiz settings and publish status",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "time_limit": { "type": "integer" },
+                  "pass_mark": { "type": "number" },
+                  "max_attempts": { "type": "integer" },
+                  "open_at": { "type": "string", "format": "date-time" },
+                  "close_at": { "type": "string", "format": "date-time" },
+                  "status": { "type": "string", "enum": ["Draft", "Published", "Archived"] },
+                  "shuffle_questions": { "type": "boolean" },
+                  "shuffle_options": { "type": "boolean" },
+                  "show_explanation": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Quiz updated" } }
+      }
+    },
+    "/topics/{id}/questions": {
+      "get": {
+        "summary": "List question bank items for topic",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Questions list" } }
+      },
+      "post": {
+        "summary": "Add question to topic question bank",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["text", "answer"],
+                "properties": {
+                  "type": { "type": "string", "enum": ["MCQ", "TrueFalse", "ShortAnswer"] },
+                  "text": { "type": "string" },
+                  "options": { "type": "array", "items": { "type": "string" } },
+                  "answer": { "type": "string" },
+                  "marks": { "type": "number" },
+                  "difficulty": { "type": "string", "enum": ["Easy", "Medium", "Hard"] },
+                  "explanation": { "type": "string" },
+                  "status": { "type": "string", "enum": ["Draft", "Approved"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Question created" } }
+      }
+    },
+    "/questions/{id}": {
+      "get": {
+        "summary": "Get question details",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Question details" } }
+      },
+      "put": {
+        "summary": "Update question details",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Question updated" } }
+      },
+      "delete": {
+        "summary": "Delete question",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Question deleted" } }
+      }
+    },
+    "/topics/{id}/quiz/preview": {
+      "get": {
+        "summary": "Staff preview of the quiz as served to students",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Preview payload" } }
+      }
+    },
+    "/quizzes/{id}/attempts": {
+      "post": {
+        "summary": "Start or resume quiz attempt (Enforces topic quiz_enabled, published status, open window, required material completion, attempt limit)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "201": { "description": "Attempt started", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QuizAttempt" } } } },
+          "403": { "description": "Unlock rules not met or max attempts reached", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/attempts/{id}": {
+      "get": {
+        "summary": "Get attempt status, remaining server timer, frozen questions, and autosaved answers",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Attempt details" } }
+      }
+    },
+    "/attempts/{id}/answers": {
+      "put": {
+        "summary": "Autosave student answers during active attempt",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "answers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": { "question_id": { "type": "integer" }, "answer": { "type": "string" } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Answers saved" } }
+      }
+    },
+    "/attempts/{id}/submit": {
+      "post": {
+        "summary": "Submit quiz attempt, evaluate score, compute pass/fail idempotently",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "idempotency_key": { "type": "string" },
+                  "answers": { "type": "array", "items": { "type": "object" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Quiz submitted and evaluated" }
+        }
+      }
+    },
+    "/subjects/{id}/results": {
+      "get": {
+        "summary": "Get subject completion funnel, per-question correctness, and unstarted students",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Subject results and analytics" } }
+      }
+    },
+    "/subjects/{id}/results/export": {
+      "get": {
+        "summary": "Export student performance across topics and quizzes as CSV",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "CSV stream", "content": { "text/csv": {} } } }
+      }
+    },
+    "/me/progress": {
+      "get": {
+        "summary": "Get authenticated student's personal learning progress across all enrolled subjects",
+        "responses": { "200": { "description": "Personal progress summary" } }
+      }
+    },
+    "/attempts/{id}/score-correction": {
+      "post": {
+        "summary": "Perform authorized manual score override/correction with justification and audit trail",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["new_score", "reason_code", "justification"],
+                "properties": {
+                  "new_score": { "type": "number" },
+                  "reason_code": { "type": "string" },
+                  "justification": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Score corrected" } }
+      }
+    },
+    "/permissions": {
+      "get": {
+        "summary": "Get academic policy permission matrix",
+        "responses": { "200": { "description": "Permissions matrix" } }
+      }
+    },
+    "/permissions/{action}": {
+      "put": {
+        "summary": "Update permission matrix rule (Admin only)",
+        "parameters": [{ "name": "action", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "allowed_roles": { "type": "array", "items": { "type": "string" } },
+                  "requires_subject_staff": { "type": "boolean" },
+                  "description": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Permission updated" } }
+      }
+    }
+  }
+}
