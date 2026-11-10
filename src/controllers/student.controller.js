@@ -988,7 +988,7 @@ const deleteStudent = async (req, res) => {
 
     const [existingStudent] = await pool.query(
       `
-      SELECT student_id
+      SELECT student_id, full_name, register_no
       FROM students
       WHERE student_id = ?
       LIMIT 1
@@ -1003,8 +1003,48 @@ const deleteStudent = async (req, res) => {
       });
     }
 
+    // 1. Pre-check for dependent academic enrollments
+    const [enrollmentRows] = await pool.query(
+      `
+      SELECT COUNT(*) AS total_enrollments
+      FROM enrollments
+      WHERE student_id = ?
+      `,
+      [id],
+    );
+    const enrollmentCount = enrollmentRows[0]?.total_enrollments || 0;
+
+    // 2. Pre-check for attendance records linked to any enrollment of this student
+    const [attendanceRows] = await pool.query(
+      `
+      SELECT COUNT(*) AS total_attendance
+      FROM attendance_records ar
+      JOIN enrollments e ON ar.enrollment_id = e.enrollment_id
+      WHERE e.student_id = ?
+      `,
+      [id],
+    );
+    const attendanceCount = attendanceRows[0]?.total_attendance || 0;
+
+    // If related academic records exist, prevent foreign key violation and return clean 409
+    if (enrollmentCount > 0 || attendanceCount > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Cannot delete this student because related records exist",
+        details: {
+          enrollments: enrollmentCount,
+          attendance_records: attendanceCount,
+          recommendation: "To preserve institutional records, update student status to INACTIVE or withdraw the student from their sections before deletion.",
+        },
+      });
+    }
+
     connection = await pool.getConnection();
     await connection.beginTransaction();
+
+    // Clean up cards / biometric templates if any
+    await connection.query(`DELETE FROM rfid_cards WHERE student_id = ?`, [id]);
+    await connection.query(`DELETE FROM fingerprint_templates WHERE student_id = ?`, [id]);
 
     // Remove user account if linked
     await connection.query(
@@ -1012,7 +1052,7 @@ const deleteStudent = async (req, res) => {
       [id],
     );
 
-    // Delete student (foreign key will block if attendance_records exist)
+    // Delete student record
     await connection.query(
       `DELETE FROM students WHERE student_id = ?`,
       [id],
@@ -1028,15 +1068,16 @@ const deleteStudent = async (req, res) => {
     if (connection) {
       await connection.rollback().catch(() => {});
     }
-    console.error("Delete student error:", error);
 
-    // Related records may prevent deletion through foreign keys.
-    if (error.code === "ER_ROW_IS_REFERENCED_2") {
+    // Related records may prevent deletion through foreign keys fallback
+    if (error.code === "ER_ROW_IS_REFERENCED_2" || error.errno === 1451) {
       return res.status(409).json({
         success: false,
         message: "Cannot delete this student because related records exist",
       });
     }
+
+    console.error("Delete student error:", error);
 
     return res.status(500).json({
       success: false,
