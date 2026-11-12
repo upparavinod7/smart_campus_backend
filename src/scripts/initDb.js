@@ -52,7 +52,7 @@ async function initDatabase() {
     }
 
     const schemaSql = fs.readFileSync(schemaPath, "utf8");
-    console.log(`[INIT-DB] Executing comprehensive relational schema (31 tables)...`);
+    console.log(`[INIT-DB] Executing comprehensive relational schema (44 tables)...`);
     const startTime = Date.now();
     await connection.query(schemaSql);
     console.log(`[INIT-DB] ✓ Schema initialized successfully (${Date.now() - startTime}ms)`);

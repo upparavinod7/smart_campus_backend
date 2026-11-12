@@ -16,6 +16,113 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
 --
+-- Table structure for table `academic_attempt_answers`
+--
+
+DROP TABLE IF EXISTS `academic_attempt_answers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_attempt_answers` (
+  `answer_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `attempt_id` int unsigned NOT NULL,
+  `question_id` int unsigned NOT NULL,
+  `answer` text COLLATE utf8mb4_unicode_ci,
+  `is_correct` tinyint(1) DEFAULT NULL,
+  `marks_awarded` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `answered_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`answer_id`),
+  UNIQUE KEY `uq_attempt_question` (`attempt_id`,`question_id`),
+  KEY `fk_ans_question` (`question_id`),
+  CONSTRAINT `fk_ans_attempt` FOREIGN KEY (`attempt_id`) REFERENCES `academic_attempts` (`attempt_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ans_question` FOREIGN KEY (`question_id`) REFERENCES `academic_questions` (`question_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=50 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_attempt_answers`
+--
+
+LOCK TABLES `academic_attempt_answers` WRITE;
+/*!40000 ALTER TABLE `academic_attempt_answers` DISABLE KEYS */;
+INSERT INTO `academic_attempt_answers` (`answer_id`, `attempt_id`, `question_id`, `answer`, `is_correct`, `marks_awarded`, `answered_at`) VALUES (46,18,32,'Big-O Notation',1,2.00,'2026-11-12 10:54:57'),(47,18,33,'Loop Invariant & Variant',1,2.00,'2026-11-12 10:54:57'),(48,18,34,'True',1,1.00,'2026-11-12 10:54:57'),(49,18,35,'O(n)',0,0.00,'2026-11-12 10:54:57');
+/*!40000 ALTER TABLE `academic_attempt_answers` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_attempts`
+--
+
+DROP TABLE IF EXISTS `academic_attempts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_attempts` (
+  `attempt_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `quiz_id` int unsigned NOT NULL,
+  `person_id` int unsigned NOT NULL,
+  `attempt_number` int unsigned NOT NULL DEFAULT '1',
+  `started_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `expires_at` datetime DEFAULT NULL,
+  `submitted_at` datetime DEFAULT NULL,
+  `score` decimal(5,2) DEFAULT NULL,
+  `max_score` decimal(5,2) DEFAULT NULL,
+  `percentage` decimal(5,2) DEFAULT NULL,
+  `result` enum('PASSED','FAILED','PENDING') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `status` enum('IN_PROGRESS','SUBMITTED','TIMED_OUT','CANCELLED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'IN_PROGRESS',
+  `question_set` json NOT NULL,
+  `idempotency_key` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`attempt_id`),
+  UNIQUE KEY `idempotency_key` (`idempotency_key`),
+  KEY `idx_attempt_quiz_person` (`quiz_id`,`person_id`,`attempt_number`),
+  KEY `fk_attempt_person` (`person_id`),
+  CONSTRAINT `fk_attempt_person` FOREIGN KEY (`person_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_attempt_quiz` FOREIGN KEY (`quiz_id`) REFERENCES `academic_quizzes` (`quiz_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_attempts`
+--
+
+LOCK TABLES `academic_attempts` WRITE;
+/*!40000 ALTER TABLE `academic_attempts` DISABLE KEYS */;
+INSERT INTO `academic_attempts` (`attempt_id`, `quiz_id`, `person_id`, `attempt_number`, `started_at`, `expires_at`, `submitted_at`, `score`, `max_score`, `percentage`, `result`, `status`, `question_set`, `idempotency_key`) VALUES (18,16,3,1,'2026-11-11 10:54:57','2026-11-11 11:54:57','2026-11-11 11:09:57',6.00,7.00,85.71,'PASSED','SUBMITTED','[{\"text\": \"Which metric best characterizes worst-case algorithmic scalability as input size n grows?\", \"type\": \"MCQ\", \"marks\": 2, \"options\": [\"Big-O Notation\", \"Constant Offset\", \"Clock Frequency\", \"Memory Address\"], \"difficulty\": \"Easy\", \"question_id\": 32}, {\"text\": \"Which property ensures an iterative algorithm terminates cleanly across all valid inputs?\", \"type\": \"MCQ\", \"marks\": 2, \"options\": [\"Loop Invariant & Variant\", \"Global Variables\", \"Dynamic Casting\", \"Static Linking\"], \"difficulty\": \"Medium\", \"question_id\": 33}, {\"text\": \"An O(n log n) algorithm scales strictly better than an O(n^2) algorithm for sufficiently large n.\", \"type\": \"TrueFalse\", \"marks\": 1, \"options\": [\"True\", \"False\"], \"difficulty\": \"Easy\", \"question_id\": 34}, {\"text\": \"What is the space complexity of an in-place iterative reversal using only constant pointers?\", \"type\": \"MCQ\", \"marks\": 2, \"options\": [\"O(1)\", \"O(log n)\", \"O(n)\", \"O(n^2)\"], \"difficulty\": \"Medium\", \"question_id\": 35}]','seed_attempt_16_3_1');
+/*!40000 ALTER TABLE `academic_attempts` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_audit_ledger`
+--
+
+DROP TABLE IF EXISTS `academic_audit_ledger`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_audit_ledger` (
+  `ledger_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `person_id` int unsigned NOT NULL,
+  `location_id` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `timestamp` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `event_type` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payload` json DEFAULT NULL,
+  `reason_code` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`ledger_id`),
+  KEY `idx_ledger_person` (`person_id`),
+  KEY `idx_ledger_event` (`event_type`),
+  KEY `idx_ledger_timestamp` (`timestamp`),
+  CONSTRAINT `fk_ledger_person` FOREIGN KEY (`person_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=165 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_audit_ledger`
+--
+
+LOCK TABLES `academic_audit_ledger` WRITE;
+/*!40000 ALTER TABLE `academic_audit_ledger` DISABLE KEYS */;
+INSERT INTO `academic_audit_ledger` (`ledger_id`, `person_id`, `location_id`, `timestamp`, `event_type`, `payload`, `reason_code`) VALUES (160,4,'ACAD-TOPIC-16','2026-11-12 10:54:57','MATERIAL_UPLOAD','{\"title\": \"Unit 1 Comprehensive Lecture Notes (v2)\", \"materialId\": 19}',NULL),(161,3,'ACAD-MAT-19','2026-11-12 10:54:57','MATERIAL_COMPLETED','{\"percent\": 100, \"materialId\": 19}',NULL),(162,3,'ACAD-QUIZ-16','2026-11-12 10:54:57','QUIZ_ATTEMPT_START','{\"attemptId\": 18, \"attemptNumber\": 1}',NULL),(163,3,'ACAD-QUIZ-16','2026-11-12 10:54:57','QUIZ_SUBMIT','{\"score\": 6, \"result\": \"PASSED\", \"maxScore\": 7, \"attemptId\": 18}',NULL),(164,4,'ACAD-QUIZ-16','2026-11-12 10:54:57','SCORE_CORRECTION','{\"newScore\": 6, \"attemptId\": 18, \"previousScore\": 5}','PARTIAL_STEP_CREDIT');
+/*!40000 ALTER TABLE `academic_audit_ledger` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `academic_holidays`
 --
 
@@ -41,6 +148,304 @@ LOCK TABLES `academic_holidays` WRITE;
 UNLOCK TABLES;
 
 --
+-- Table structure for table `academic_material_progress`
+--
+
+DROP TABLE IF EXISTS `academic_material_progress`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_material_progress` (
+  `progress_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `person_id` int unsigned NOT NULL,
+  `material_id` int unsigned NOT NULL,
+  `percent` int unsigned NOT NULL DEFAULT '0',
+  `status` enum('NOT_STARTED','IN_PROGRESS','COMPLETED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NOT_STARTED',
+  `completed_at` datetime DEFAULT NULL,
+  `last_accessed_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`progress_id`),
+  UNIQUE KEY `uq_progress_person_mat` (`person_id`,`material_id`),
+  KEY `idx_progress_mat` (`material_id`),
+  CONSTRAINT `fk_progress_material` FOREIGN KEY (`material_id`) REFERENCES `academic_materials` (`material_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_progress_person` FOREIGN KEY (`person_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_material_progress`
+--
+
+LOCK TABLES `academic_material_progress` WRITE;
+/*!40000 ALTER TABLE `academic_material_progress` DISABLE KEYS */;
+INSERT INTO `academic_material_progress` (`progress_id`, `person_id`, `material_id`, `percent`, `status`, `completed_at`, `last_accessed_at`) VALUES (15,3,19,100,'COMPLETED','2026-11-10 10:54:57','2026-11-12 10:54:57'),(16,3,20,100,'COMPLETED','2026-11-10 10:54:57','2026-11-12 10:54:57'),(17,203,19,60,'IN_PROGRESS',NULL,'2026-11-12 10:54:57'),(18,3,23,50,'IN_PROGRESS',NULL,'2026-11-12 10:54:57'),(19,3,25,100,'COMPLETED','2026-11-12 10:54:57','2026-11-12 10:54:57');
+/*!40000 ALTER TABLE `academic_material_progress` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_material_versions`
+--
+
+DROP TABLE IF EXISTS `academic_material_versions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_material_versions` (
+  `version_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `material_id` int unsigned NOT NULL,
+  `version` int unsigned NOT NULL,
+  `file_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `mime_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `file_size` bigint unsigned DEFAULT NULL,
+  `change_summary` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`version_id`),
+  UNIQUE KEY `uq_mat_version` (`material_id`,`version`),
+  KEY `fk_matver_creator` (`created_by`),
+  CONSTRAINT `fk_matver_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_matver_material` FOREIGN KEY (`material_id`) REFERENCES `academic_materials` (`material_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=29 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_material_versions`
+--
+
+LOCK TABLES `academic_material_versions` WRITE;
+/*!40000 ALTER TABLE `academic_material_versions` DISABLE KEYS */;
+INSERT INTO `academic_material_versions` (`version_id`, `material_id`, `version`, `file_ref`, `mime_type`, `file_size`, `change_summary`, `created_by`, `created_at`) VALUES (20,19,1,'/home/upparavinod7/Desktop/smart campus/smart_campus_backend/storage/materials/demo_AIML102_foundations_v2.pdf','application/pdf',831,'Initial publication',4,'2026-11-12 05:24:57'),(21,19,2,'/home/upparavinod7/Desktop/smart campus/smart_campus_backend/storage/materials/demo_AIML102_foundations_v2.pdf','application/pdf',831,'Updated examples and typo fixes',4,'2026-11-12 05:24:57'),(22,20,1,'https://visualgo.net/en','text/uri-list',NULL,'Initial publication',4,'2026-11-12 05:24:57'),(23,21,1,NULL,'text/plain',NULL,'Initial publication',4,'2026-11-12 05:24:57'),(24,22,1,'/home/upparavinod7/Desktop/smart campus/smart_campus_backend/storage/materials/demo_AIML102_draft_slides.txt','text/plain',93,'Initial publication',4,'2026-11-12 05:24:57'),(25,23,1,'/home/upparavinod7/Desktop/smart campus/smart_campus_backend/storage/materials/demo_AIML102_topic2_guide.pdf','application/pdf',771,'Initial publication',4,'2026-11-12 05:24:57'),(26,24,1,NULL,'text/plain',NULL,'Initial publication',4,'2026-11-12 05:24:57'),(27,25,1,NULL,'text/plain',NULL,'Initial publication',4,'2026-11-12 05:24:57'),(28,26,1,NULL,'text/plain',NULL,'Initial publication',4,'2026-11-12 05:24:57');
+/*!40000 ALTER TABLE `academic_material_versions` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_materials`
+--
+
+DROP TABLE IF EXISTS `academic_materials`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_materials` (
+  `material_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `topic_id` int unsigned NOT NULL,
+  `type` enum('PDF','Video','Slide','Link','Notes') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `file_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `version` int unsigned NOT NULL DEFAULT '1',
+  `status` enum('Draft','Published') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Draft',
+  `required_flag` tinyint(1) NOT NULL DEFAULT '0',
+  `position` int unsigned NOT NULL DEFAULT '1',
+  `mime_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `file_size` bigint unsigned DEFAULT NULL,
+  `virus_scan_status` enum('PENDING','CLEAN','INFECTED','SKIPPED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CLEAN',
+  `extracted_text_ref` longtext COLLATE utf8mb4_unicode_ci,
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`material_id`),
+  KEY `idx_materials_topic_status` (`topic_id`,`status`),
+  KEY `fk_material_creator` (`created_by`),
+  CONSTRAINT `fk_material_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_material_topic` FOREIGN KEY (`topic_id`) REFERENCES `academic_topics` (`topic_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=27 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_materials`
+--
+
+LOCK TABLES `academic_materials` WRITE;
+/*!40000 ALTER TABLE `academic_materials` DISABLE KEYS */;
+INSERT INTO `academic_materials` (`material_id`, `topic_id`, `type`, `title`, `description`, `file_ref`, `version`, `status`, `required_flag`, `position`, `mime_type`, `file_size`, `virus_scan_status`, `extracted_text_ref`, `created_by`, `created_at`, `updated_at`) VALUES (19,16,'PDF','Unit 1 Comprehensive Lecture Notes (v2)','Mandatory reading covering foundational definitions and worked proofs.','/home/upparavinod7/Desktop/smart campus/smart_campus_backend/storage/materials/demo_AIML102_foundations_v2.pdf',2,'Published',1,1,'application/pdf',831,'CLEAN','Overview of core principles and analytical bounds. Worked examples covering worst-case and average-case analysis.',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(20,16,'Link','Interactive Concept Visualizer Reference','External interactive visualization lab tool.','https://visualgo.net/en',1,'Published',1,2,'text/uri-list',NULL,'CLEAN','External interactive visualization lab tool.',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(21,16,'Notes','Optional Supplemental Practice Sheet','Extra ungraded practice problems with step-by-step hints.',NULL,1,'Published',0,3,'text/plain',NULL,'CLEAN','Extra ungraded practice problems with step-by-step hints.',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(22,16,'Slide','Instructor Draft: Advanced Extensions Slides','Unpublished draft visible only to faculty and admins.','/home/upparavinod7/Desktop/smart campus/smart_campus_backend/storage/materials/demo_AIML102_draft_slides.txt',1,'Draft',0,4,'text/plain',93,'CLEAN','Unpublished draft visible only to faculty and admins.',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(23,17,'PDF','Required Reading: Core Algorithms & Workflows','Currently in-progress (50%) for demo student J26AIM001.','/home/upparavinod7/Desktop/smart campus/smart_campus_backend/storage/materials/demo_AIML102_topic2_guide.pdf',1,'Published',1,1,'application/pdf',771,'CLEAN','Currently in-progress (50%) for demo student J26AIM001.',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(24,17,'Notes','Required Checklist: Common Edge Cases & Proofs','Not yet started by J26AIM001 — blocks Topic 2 quiz until marked 100%.',NULL,1,'Published',1,2,'text/plain',NULL,'CLEAN','Not yet started by J26AIM001 — blocks Topic 2 quiz until marked 100%.',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(25,18,'Notes','AIML103 Quick Reference Summary','Essential concepts summary marked complete for J26AIM001.',NULL,1,'Published',1,1,'text/plain',NULL,'CLEAN','Essential concepts summary marked complete for J26AIM001.',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(26,19,'Notes','Lab Instructions & Rubric','Step-by-step instructions for laboratory evaluation.',NULL,1,'Published',1,1,'text/plain',NULL,'CLEAN','Step-by-step instructions for laboratory evaluation.',4,'2026-11-12 05:24:57','2026-11-12 05:24:57');
+/*!40000 ALTER TABLE `academic_materials` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_ml_jobs`
+--
+
+DROP TABLE IF EXISTS `academic_ml_jobs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_ml_jobs` (
+  `job_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `topic_id` int unsigned NOT NULL,
+  `material_id` int unsigned DEFAULT NULL,
+  `job_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'QUESTION_GENERATION',
+  `status` enum('PENDING','PROCESSING','COMPLETED','FAILED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `requested_by` int unsigned NOT NULL,
+  `result_summary` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`job_id`),
+  KEY `fk_mljob_topic` (`topic_id`),
+  KEY `fk_mljob_material` (`material_id`),
+  KEY `fk_mljob_user` (`requested_by`),
+  CONSTRAINT `fk_mljob_material` FOREIGN KEY (`material_id`) REFERENCES `academic_materials` (`material_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_mljob_topic` FOREIGN KEY (`topic_id`) REFERENCES `academic_topics` (`topic_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_mljob_user` FOREIGN KEY (`requested_by`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_ml_jobs`
+--
+
+LOCK TABLES `academic_ml_jobs` WRITE;
+/*!40000 ALTER TABLE `academic_ml_jobs` DISABLE KEYS */;
+INSERT INTO `academic_ml_jobs` (`job_id`, `topic_id`, `material_id`, `job_type`, `status`, `requested_by`, `result_summary`, `created_at`, `updated_at`) VALUES (2,16,19,'QUESTION_GENERATION','COMPLETED',4,'{\"note\": \"ML schema compatibility placeholder\", \"generated_drafts\": 1}','2026-11-12 05:24:57','2026-11-12 05:24:57');
+/*!40000 ALTER TABLE `academic_ml_jobs` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_permission_matrix`
+--
+
+DROP TABLE IF EXISTS `academic_permission_matrix`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_permission_matrix` (
+  `policy_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `action` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `allowed_roles` json NOT NULL,
+  `requires_subject_staff` tinyint(1) NOT NULL DEFAULT '1',
+  `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`policy_id`),
+  UNIQUE KEY `action` (`action`)
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_permission_matrix`
+--
+
+LOCK TABLES `academic_permission_matrix` WRITE;
+/*!40000 ALTER TABLE `academic_permission_matrix` DISABLE KEYS */;
+INSERT INTO `academic_permission_matrix` (`policy_id`, `action`, `allowed_roles`, `requires_subject_staff`, `description`, `updated_at`) VALUES (1,'MANAGE_TOPICS','[\"ADMIN\", \"FACULTY\"]',1,'Create, edit, and manage topics for assigned subjects','2026-11-12 05:07:38'),(2,'UPLOAD_MATERIALS','[\"ADMIN\", \"FACULTY\"]',1,'Upload or create study materials','2026-11-05 04:17:53'),(3,'PUBLISH_MATERIALS','[\"ADMIN\", \"FACULTY\"]',1,'Publish or unpublish materials','2026-11-05 04:17:53'),(4,'AUTHOR_QUESTIONS','[\"ADMIN\", \"FACULTY\"]',1,'Manage question bank items','2026-11-05 04:17:53'),(5,'CONFIGURE_QUIZ','[\"ADMIN\", \"FACULTY\"]',1,'Create and configure topic quizzes','2026-11-05 04:17:53'),(6,'PREVIEW_QUIZ','[\"ADMIN\", \"FACULTY\"]',1,'Preview quiz questions and layout','2026-11-05 04:17:53'),(7,'ATTEMPT_QUIZ','[\"STUDENT\"]',0,'Start and submit quiz attempts','2026-11-05 04:17:53'),(8,'VIEW_ANALYTICS','[\"ADMIN\", \"FACULTY\"]',1,'View student progress and quiz performance metrics','2026-11-05 04:17:53'),(9,'CORRECT_SCORE','[\"ADMIN\", \"FACULTY\"]',1,'Manually correct or override attempt scores','2026-11-05 04:17:53'),(10,'MANAGE_STAFF','[\"ADMIN\", \"FACULTY\"]',0,'Assign faculty to subjects','2026-11-05 04:17:53');
+/*!40000 ALTER TABLE `academic_permission_matrix` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_questions`
+--
+
+DROP TABLE IF EXISTS `academic_questions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_questions` (
+  `question_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `topic_id` int unsigned NOT NULL,
+  `type` enum('MCQ','TrueFalse','ShortAnswer') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MCQ',
+  `text` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `options` json DEFAULT NULL,
+  `answer` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `explanation` text COLLATE utf8mb4_unicode_ci,
+  `marks` decimal(5,2) NOT NULL DEFAULT '1.00',
+  `difficulty` enum('Easy','Medium','Hard') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Medium',
+  `source_ref` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `origin` enum('Manual','ML') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Manual',
+  `approved_by` int unsigned DEFAULT NULL,
+  `status` enum('Draft','Approved','Archived') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Approved',
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`question_id`),
+  KEY `idx_questions_topic_status` (`topic_id`,`status`),
+  KEY `fk_quest_approver` (`approved_by`),
+  KEY `fk_quest_creator` (`created_by`),
+  CONSTRAINT `fk_quest_approver` FOREIGN KEY (`approved_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_quest_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_quest_topic` FOREIGN KEY (`topic_id`) REFERENCES `academic_topics` (`topic_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=43 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_questions`
+--
+
+LOCK TABLES `academic_questions` WRITE;
+/*!40000 ALTER TABLE `academic_questions` DISABLE KEYS */;
+INSERT INTO `academic_questions` (`question_id`, `topic_id`, `type`, `text`, `options`, `answer`, `explanation`, `marks`, `difficulty`, `source_ref`, `origin`, `approved_by`, `status`, `created_by`, `created_at`, `updated_at`) VALUES (32,16,'MCQ','Which metric best characterizes worst-case algorithmic scalability as input size n grows?','[\"Big-O Notation\", \"Constant Offset\", \"Clock Frequency\", \"Memory Address\"]','Big-O Notation','Big-O describes the upper bound growth rate as input size approaches infinity.',2.00,'Easy','material:19','Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(33,16,'MCQ','Which property ensures an iterative algorithm terminates cleanly across all valid inputs?','[\"Loop Invariant & Variant\", \"Global Variables\", \"Dynamic Casting\", \"Static Linking\"]','Loop Invariant & Variant','A decreasing variant bounded below guarantees loop termination.',2.00,'Medium',NULL,'Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(34,16,'TrueFalse','An O(n log n) algorithm scales strictly better than an O(n^2) algorithm for sufficiently large n.','[\"True\", \"False\"]','True','Linearithmic growth is asymptotically slower than quadratic growth.',1.00,'Easy',NULL,'Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(35,16,'MCQ','What is the space complexity of an in-place iterative reversal using only constant pointers?','[\"O(1)\", \"O(log n)\", \"O(n)\", \"O(n^2)\"]','O(1)','Only a fixed number of pointer variables are allocated regardless of input length.',2.00,'Medium',NULL,'Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(36,16,'MCQ','[ML Suggested Draft] Which technique trades extra memory space for faster lookup performance?','[\"Hashing / Memoization\", \"Bubble Sort\", \"Linear Scan\", \"Recursion Unrolling\"]','Hashing / Memoization','Caching computed results or using hash tables improves lookup speed.',1.00,'Easy','material:19','ML',NULL,'Draft',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(37,17,'MCQ','Which traversal order uses a FIFO Queue to explore nodes level-by-level?','[\"Breadth-First Search (BFS)\", \"Depth-First Search (DFS)\", \"Postorder\", \"Topological Backtrack\"]','Breadth-First Search (BFS)','BFS uses a Queue (FIFO) to explore all neighbors at the current depth first.',2.00,'Easy',NULL,'Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(38,17,'TrueFalse','A Stack follows the Last-In, First-Out (LIFO) ordering principle.','[\"True\", \"False\"]','True','Push and pop always operate on the top element of the stack.',1.00,'Easy',NULL,'Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(39,18,'MCQ','When starting a timed quiz attempt in Smart Campus, which server rule enforces fairness?','[\"Frozen sanitized question snapshot + server expires_at\", \"Client-side timer only\", \"Sending correct answers inside initial quiz payload\", \"Unlimited unauthenticated retries\"]','Frozen sanitized question snapshot + server expires_at','Answer keys are stripped from student payloads and expiry is checked on the server.',2.00,'Medium',NULL,'Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(40,18,'TrueFalse','Submitting the same quiz attempt twice with an idempotency key prevents duplicate grade rows.','[\"True\", \"False\"]','True','Duplicate submit requests return the existing evaluated score record.',1.00,'Easy',NULL,'Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(41,19,'TrueFalse','Unit tests and boundary checks must pass before lab submission.','[\"True\", \"False\"]','True','Automated grading validates edge cases alongside nominal behavior.',1.00,'Easy',NULL,'Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(42,20,'TrueFalse','Enrolled students only may access this quiz.','[\"True\", \"False\"]','True',NULL,1.00,'Medium',NULL,'Manual',4,'Approved',4,'2026-11-12 05:24:57','2026-11-12 05:24:57');
+/*!40000 ALTER TABLE `academic_questions` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_quizzes`
+--
+
+DROP TABLE IF EXISTS `academic_quizzes`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_quizzes` (
+  `quiz_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `topic_id` int unsigned NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `version` int unsigned NOT NULL DEFAULT '1',
+  `time_limit` int unsigned NOT NULL DEFAULT '30',
+  `pass_mark` decimal(5,2) NOT NULL DEFAULT '50.00',
+  `max_attempts` int unsigned NOT NULL DEFAULT '3',
+  `open_at` datetime DEFAULT NULL,
+  `close_at` datetime DEFAULT NULL,
+  `status` enum('Draft','Published','Archived') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Draft',
+  `shuffle_questions` tinyint(1) NOT NULL DEFAULT '1',
+  `shuffle_options` tinyint(1) NOT NULL DEFAULT '1',
+  `show_explanation` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`quiz_id`),
+  UNIQUE KEY `topic_id` (`topic_id`),
+  KEY `fk_quiz_creator` (`created_by`),
+  CONSTRAINT `fk_quiz_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_quiz_topic` FOREIGN KEY (`topic_id`) REFERENCES `academic_topics` (`topic_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_quizzes`
+--
+
+LOCK TABLES `academic_quizzes` WRITE;
+/*!40000 ALTER TABLE `academic_quizzes` DISABLE KEYS */;
+INSERT INTO `academic_quizzes` (`quiz_id`, `topic_id`, `title`, `description`, `version`, `time_limit`, `pass_mark`, `max_attempts`, `open_at`, `close_at`, `status`, `shuffle_questions`, `shuffle_options`, `show_explanation`, `created_by`, `created_at`, `updated_at`) VALUES (16,16,'Topic 1 Assessment: AIML102','Covers foundational notes and interactive reference concepts.',1,20,60.00,3,'2026-11-05 10:54:57','2027-02-10 10:54:57','Published',1,1,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(17,17,'Topic 2 Unlock Verification Quiz','Locked until all required Topic 2 materials reach 100% completion.',1,15,50.00,2,'2026-11-10 10:54:57','2027-02-10 10:54:57','Published',1,1,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(18,18,'AIML103 Ready Quiz','Unlocked & ready for immediate student attempt.',1,15,50.00,3,'2026-11-11 10:54:57','2027-02-10 10:54:57','Published',1,1,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(19,19,'AIML106 Scheduled Upcoming Quiz','Scheduled to open in the future (tests open_at window rule).',1,10,50.00,2,'2026-11-19 10:54:57','2026-12-12 10:54:57','Published',1,1,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(20,20,'AIML101 Restricted Quiz','Restricted to students registered in this subject.',1,10,50.00,1,NULL,NULL,'Published',1,1,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57');
+/*!40000 ALTER TABLE `academic_quizzes` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_score_corrections`
+--
+
+DROP TABLE IF EXISTS `academic_score_corrections`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_score_corrections` (
+  `correction_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `attempt_id` int unsigned NOT NULL,
+  `previous_score` decimal(5,2) NOT NULL,
+  `new_score` decimal(5,2) NOT NULL,
+  `reason_code` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `justification` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `corrected_by` int unsigned NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`correction_id`),
+  KEY `fk_scorecorr_attempt` (`attempt_id`),
+  KEY `fk_scorecorr_user` (`corrected_by`),
+  CONSTRAINT `fk_scorecorr_attempt` FOREIGN KEY (`attempt_id`) REFERENCES `academic_attempts` (`attempt_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_scorecorr_user` FOREIGN KEY (`corrected_by`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_score_corrections`
+--
+
+LOCK TABLES `academic_score_corrections` WRITE;
+/*!40000 ALTER TABLE `academic_score_corrections` DISABLE KEYS */;
+INSERT INTO `academic_score_corrections` (`correction_id`, `attempt_id`, `previous_score`, `new_score`, `reason_code`, `justification`, `corrected_by`, `created_at`) VALUES (11,18,5.00,6.00,'PARTIAL_STEP_CREDIT','Granted 1 additional point after manual review of working step submission.',4,'2026-11-12 05:24:57');
+/*!40000 ALTER TABLE `academic_score_corrections` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `academic_terms`
 --
 
@@ -59,7 +464,7 @@ CREATE TABLE `academic_terms` (
   UNIQUE KEY `uq_term` (`academic_year_id`,`term_type`),
   CONSTRAINT `fk_term_ay` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`academic_year_id`),
   CONSTRAINT `ck_term_dates` CHECK ((`end_date` > `start_date`))
-) ENGINE=InnoDB AUTO_INCREMENT=60 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=89 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -70,6 +475,41 @@ LOCK TABLES `academic_terms` WRITE;
 /*!40000 ALTER TABLE `academic_terms` DISABLE KEYS */;
 INSERT INTO `academic_terms` (`term_id`, `academic_year_id`, `term_type`, `start_date`, `end_date`, `created_at`, `updated_at`) VALUES (1,1,'ODD','2023-06-01','2023-12-31','2026-09-24 09:38:26','2026-09-24 09:38:26'),(2,1,'EVEN','2024-01-01','2024-05-31','2026-09-24 09:38:26','2026-09-24 09:38:26'),(3,2,'ODD','2024-06-01','2024-12-31','2026-09-24 09:38:26','2026-09-24 09:38:26'),(4,2,'EVEN','2025-01-01','2025-05-31','2026-09-24 09:38:26','2026-09-24 09:38:26'),(5,3,'ODD','2025-06-01','2025-12-31','2026-09-24 09:38:26','2026-09-24 09:38:26'),(6,3,'EVEN','2026-01-01','2026-05-31','2026-09-24 09:38:26','2026-09-24 09:38:26'),(7,4,'ODD','2026-06-01','2026-12-31','2026-09-24 09:38:26','2026-09-24 09:38:26'),(8,4,'EVEN','2027-01-01','2027-05-31','2026-09-24 09:38:26','2026-09-24 09:38:26');
 /*!40000 ALTER TABLE `academic_terms` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `academic_topics`
+--
+
+DROP TABLE IF EXISTS `academic_topics`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `academic_topics` (
+  `topic_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `subject_id` int unsigned NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `position` int unsigned NOT NULL DEFAULT '1',
+  `quiz_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`topic_id`),
+  KEY `idx_topics_subject_pos` (`subject_id`,`position`),
+  KEY `fk_topic_creator` (`created_by`),
+  CONSTRAINT `fk_topic_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_topic_subject` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`subject_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `academic_topics`
+--
+
+LOCK TABLES `academic_topics` WRITE;
+/*!40000 ALTER TABLE `academic_topics` DISABLE KEYS */;
+INSERT INTO `academic_topics` (`topic_id`, `subject_id`, `title`, `description`, `position`, `quiz_enabled`, `created_by`, `created_at`, `updated_at`) VALUES (16,2,'Foundations & Core Principles (AIML102)','Core concepts, complexity foundations, and mathematical intuition.',1,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(17,2,'Structured Problem Solving & Applied Models','Complete both required materials below to unlock the Topic 2 Quiz (AC-STU-03).',2,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(18,3,'Ready-to-Take Module (AIML103)','Required materials already completed by J26AIM001; quiz is unlocked with 0 attempts so far.',1,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(19,6,'Practical Drill & Upcoming Quiz (AIML106)','Contains a lab manual and an upcoming scheduled quiz window.',1,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(20,1,'Restricted Subject Topic (AIML101)','Student J26AIM001 is NOT enrolled in this subject (verifies 403 enrollment guard).',1,1,4,'2026-11-12 05:24:57','2026-11-12 05:24:57');
+/*!40000 ALTER TABLE `academic_topics` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --
@@ -89,7 +529,7 @@ CREATE TABLE `academic_years` (
   PRIMARY KEY (`academic_year_id`),
   UNIQUE KEY `uq_ay_label` (`label`),
   CONSTRAINT `ck_ay_dates` CHECK ((`end_date` > `start_date`))
-) ENGINE=InnoDB AUTO_INCREMENT=107 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=165 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -131,7 +571,7 @@ CREATE TABLE `attendance_corrections` (
   CONSTRAINT `fk_corr_dec` FOREIGN KEY (`decided_by`) REFERENCES `users` (`user_id`),
   CONSTRAINT `fk_corr_req` FOREIGN KEY (`requested_by`) REFERENCES `users` (`user_id`),
   CONSTRAINT `ck_corr_change` CHECK ((`previous_status` <> `new_status`))
-) ENGINE=InnoDB AUTO_INCREMENT=159 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=246 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -178,7 +618,7 @@ CREATE TABLE `attendance_records` (
   CONSTRAINT `fk_att_enroll` FOREIGN KEY (`enrollment_id`) REFERENCES `enrollments` (`enrollment_id`),
   CONSTRAINT `fk_att_fp` FOREIGN KEY (`fingerprint_template_id`) REFERENCES `fingerprint_templates` (`template_id`),
   CONSTRAINT `fk_att_session` FOREIGN KEY (`session_id`) REFERENCES `class_sessions` (`session_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=1783 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3320 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -210,7 +650,7 @@ CREATE TABLE `batches` (
   KEY `fk_batch_year` (`start_year_id`),
   CONSTRAINT `fk_batch_prog` FOREIGN KEY (`programme_id`) REFERENCES `programmes` (`programme_id`),
   CONSTRAINT `fk_batch_year` FOREIGN KEY (`start_year_id`) REFERENCES `academic_years` (`academic_year_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=72 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=101 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -240,7 +680,7 @@ CREATE TABLE `blocks` (
   PRIMARY KEY (`block_id`),
   UNIQUE KEY `uq_building_name` (`name`),
   UNIQUE KEY `uq_building_code` (`code`)
-) ENGINE=InnoDB AUTO_INCREMENT=103 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=132 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -249,7 +689,7 @@ CREATE TABLE `blocks` (
 
 LOCK TABLES `blocks` WRITE;
 /*!40000 ALTER TABLE `blocks` DISABLE KEYS */;
-INSERT INTO `blocks` (`block_id`, `code`, `name`, `is_active`, `created_at`, `updated_at`) VALUES (1,'A-BLOCK','Academic Block A',0,'2026-09-24 10:21:08','2026-10-15 16:48:27'),(2,'B-BLOCK','Academic Block B',0,'2026-09-24 10:21:08','2026-10-15 16:48:32'),(3,'C-BLOCK. updated','Academic Block C. updated',0,'2026-09-25 06:11:20','2026-09-25 06:12:26'),(4,'B309931','Block_Test_1790761309931_Updated',0,'2026-09-30 09:41:49','2026-09-30 09:41:49'),(7,'B586587','Block_Test_1790761586587_Updated',0,'2026-09-30 09:46:26','2026-09-30 09:46:26'),(36,'joveena','Joveena',1,'2026-10-09 05:03:46','2026-10-09 05:03:46'),(37,'joshua','Joshua',1,'2026-10-09 05:04:14','2026-10-09 05:04:14'),(38,'juliana','Juliana',1,'2026-10-09 05:04:39','2026-10-09 05:04:39'),(39,'admin','Administrative',1,'2026-10-09 05:05:04','2026-10-09 05:05:04'),(40,'francis','Francis',1,'2026-10-09 05:05:38','2026-10-09 05:05:38'),(41,'adhiharam','Adhiharam',1,'2026-10-09 05:06:03','2026-10-09 05:06:03'),(42,'arul','Arul',1,'2026-10-09 05:06:43','2026-10-09 05:06:43'),(43,'joe','Joe',1,'2026-10-09 05:07:26','2026-10-09 05:07:26'),(44,'gino','Gino',1,'2026-10-09 05:09:13','2026-10-09 05:09:13'),(45,'sosai','Sosai',1,'2026-10-09 05:09:27','2026-10-09 05:09:27');
+INSERT INTO `blocks` (`block_id`, `code`, `name`, `is_active`, `created_at`, `updated_at`) VALUES (1,'A-BLOCK','Academic Block A',0,'2026-09-24 10:21:08','2026-10-15 16:48:27'),(2,'B-BLOCK','Academic Block B',0,'2026-09-24 10:21:08','2026-10-15 16:48:32'),(3,'C-BLOCK. updated','Academic Block C. updated',0,'2026-09-25 06:11:20','2026-09-25 06:12:26'),(4,'B309931','Block_Test_1790761309931_Updated',0,'2026-09-30 09:41:49','2026-09-30 09:41:49'),(7,'B586587','Block_Test_1790761586587_Updated test',1,'2026-09-30 09:46:26','2026-11-02 05:28:47'),(36,'joveena','Joveena',1,'2026-10-09 05:03:46','2026-10-09 05:03:46'),(37,'joshua','Joshua',1,'2026-10-09 05:04:14','2026-10-09 05:04:14'),(38,'juliana','Juliana',1,'2026-10-09 05:04:39','2026-10-09 05:04:39'),(39,'admin','Administrative',1,'2026-10-09 05:05:04','2026-10-09 05:05:04'),(40,'francis','Francis',1,'2026-10-09 05:05:38','2026-10-09 05:05:38'),(41,'adhiharam','Adhiharam',1,'2026-10-09 05:06:03','2026-10-09 05:06:03'),(42,'arul','Arul',1,'2026-10-09 05:06:43','2026-10-09 05:06:43'),(43,'joe','Joe',1,'2026-10-09 05:07:26','2026-10-09 05:07:26'),(44,'gino','Gino',1,'2026-10-09 05:09:13','2026-10-09 05:09:13'),(45,'sosai','Sosai',1,'2026-10-09 05:09:27','2026-10-09 05:09:27');
 /*!40000 ALTER TABLE `blocks` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -289,7 +729,7 @@ CREATE TABLE `class_sessions` (
   CONSTRAINT `fk_sess_slot` FOREIGN KEY (`slot_id`) REFERENCES `timetable_slots` (`slot_id`),
   CONSTRAINT `fk_sess_user` FOREIGN KEY (`closed_by_user`) REFERENCES `users` (`user_id`),
   CONSTRAINT `ck_session_times` CHECK (((`scheduled_end` > `scheduled_start`) and (`late_until` >= `present_until`)))
-) ENGINE=InnoDB AUTO_INCREMENT=477 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=738 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -324,7 +764,7 @@ CREATE TABLE `classrooms` (
   KEY `fk_room_department` (`department_id`),
   CONSTRAINT `fk_room_block` FOREIGN KEY (`block_id`) REFERENCES `blocks` (`block_id`),
   CONSTRAINT `fk_room_department` FOREIGN KEY (`department_id`) REFERENCES `departments` (`department_id`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=95 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=142 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -333,7 +773,7 @@ CREATE TABLE `classrooms` (
 
 LOCK TABLES `classrooms` WRITE;
 /*!40000 ALTER TABLE `classrooms` DISABLE KEYS */;
-INSERT INTO `classrooms` (`classroom_id`, `block_id`, `department_id`, `room_no`, `room_type`, `capacity`, `is_active`, `created_at`, `updated_at`) VALUES (1,1,1,'A101','CLASSROOM',60,1,'2026-09-24 10:26:00','2026-10-07 09:06:37'),(2,1,1,'A102','SMART_CLASSROOM',60,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(3,1,1,'A103','CLASSROOM',50,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(4,1,1,'A104','LAB',40,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(5,2,1,'B101','SMART_CLASSROOM',60,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(6,2,1,'B102','CLASSROOM',50,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(7,2,1,'B103.updated','CLASSROOM',60,0,'2026-09-25 06:24:14','2026-09-30 09:37:38'),(8,1,1,'R10069_U','LAB',80,0,'2026-09-30 09:41:50','2026-09-30 09:41:50'),(10,1,1,'R86723_U','LAB',80,0,'2026-09-30 09:46:26','2026-09-30 09:46:26'),(92,38,NULL,'101','SMART_CLASSROOM',60,1,'2026-10-28 06:39:45','2026-10-28 06:39:45');
+INSERT INTO `classrooms` (`classroom_id`, `block_id`, `department_id`, `room_no`, `room_type`, `capacity`, `is_active`, `created_at`, `updated_at`) VALUES (1,1,1,'A101','CLASSROOM',60,1,'2026-09-24 10:26:00','2026-10-07 09:06:37'),(2,1,1,'A102','SMART_CLASSROOM',60,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(3,1,1,'A103','CLASSROOM',50,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(4,1,1,'A104','LAB',40,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(5,2,1,'B101','SMART_CLASSROOM',60,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(6,2,1,'B102','CLASSROOM',50,1,'2026-09-24 10:26:00','2026-09-30 09:37:38'),(7,2,1,'B103.updated','CLASSROOM',60,0,'2026-09-25 06:24:14','2026-09-30 09:37:38'),(8,1,1,'R10069_U','LAB',80,0,'2026-09-30 09:41:50','2026-09-30 09:41:50'),(10,1,1,'R86723_U test','LAB',80,0,'2026-09-30 09:46:26','2026-11-02 05:28:31'),(92,38,NULL,'101','SMART_CLASSROOM',60,1,'2026-10-28 06:39:45','2026-10-28 06:39:45');
 /*!40000 ALTER TABLE `classrooms` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -385,7 +825,7 @@ CREATE TABLE `course_offerings` (
   CONSTRAINT `fk_off_coord` FOREIGN KEY (`coordinator_faculty_id`) REFERENCES `faculty` (`faculty_id`),
   CONSTRAINT `fk_off_subj` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`subject_id`),
   CONSTRAINT `fk_off_term` FOREIGN KEY (`term_id`) REFERENCES `academic_terms` (`term_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=87 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=116 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -415,7 +855,7 @@ CREATE TABLE `degrees` (
   PRIMARY KEY (`degree_id`),
   UNIQUE KEY `uq_degrees_code` (`code`),
   UNIQUE KEY `uq_degrees_name` (`name`)
-) ENGINE=InnoDB AUTO_INCREMENT=38 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=57 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -447,7 +887,7 @@ CREATE TABLE `departments` (
   UNIQUE KEY `uq_dept_school_name` (`school_id`,`name`),
   UNIQUE KEY `uq_dept_id_school` (`department_id`,`school_id`),
   CONSTRAINT `fk_dept_school` FOREIGN KEY (`school_id`) REFERENCES `schools` (`school_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=108 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=138 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -456,7 +896,7 @@ CREATE TABLE `departments` (
 
 LOCK TABLES `departments` WRITE;
 /*!40000 ALTER TABLE `departments` DISABLE KEYS */;
-INSERT INTO `departments` (`department_id`, `school_id`, `name`, `code`, `is_active`, `created_at`, `updated_at`) VALUES (1,1,'Department of Agricultural Sciences','AGRI',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(2,2,'Department of Humanities & Social Sciences','HSS',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(3,2,'Department of Sciences','SCI',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(4,2,'Department of Library & Information Science','LIS',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(5,3,'Department of Computing & Information Systems','CIS',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(6,4,'Department of Engineering & Technology','ET',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(7,4,'Department of Design','DES',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(8,5,'Department of Management','MGT',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(9,5,'Department of Commerce','COM',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(10,6,'Department of Law','LAW',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(11,7,'Department of Allied Health Sciences','AHS',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(12,7,'Department of Biotechnology','BIO',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(13,7,'Department of Physiotherapy','PHY',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(14,8,'Department of Nursing','NUR',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(15,9,'Department of Pharmacy','PHAR',1,'2026-09-24 08:57:37','2026-09-24 08:57:37');
+INSERT INTO `departments` (`department_id`, `school_id`, `name`, `code`, `is_active`, `created_at`, `updated_at`) VALUES (1,1,'Department of Agricultural Sciences','AGRI',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(2,2,'Department of Humanities & Social Sciences','HSS',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(3,2,'Department of Sciences','SCI',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(4,2,'Department of Library & Information Science','LIS',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(5,3,'Department of Computing & Information Systems','CIS',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(6,4,'Department of Engineering & Technology','ET',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(7,4,'Department of Design','DES',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(8,5,'Department of Management','MGT',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(9,5,'Department of Commerce','COM',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(10,6,'Department of Law','LAW',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(11,7,'Department of Allied Health Sciences','AHS',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(12,7,'Department of Biotechnology','BIO',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(13,7,'Department of Physiotherapy','PHY',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(14,8,'Department of Nursing','NUR',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(15,9,'Department of Pharmacy','PHAR',1,'2026-09-24 08:57:37','2026-09-24 08:57:37'),(116,8,'test department 12','cse test',1,'2026-10-28 09:20:03','2026-11-02 05:28:04');
 /*!40000 ALTER TABLE `departments` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -575,7 +1015,7 @@ CREATE TABLE `enrollments` (
   CONSTRAINT `fk_enr_section` FOREIGN KEY (`section_id`) REFERENCES `sections` (`section_id`),
   CONSTRAINT `fk_enr_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`),
   CONSTRAINT `ck_enr_drop` CHECK (((`dropped_on` is null) or (`dropped_on` >= `registered_on`)))
-) ENGINE=InnoDB AUTO_INCREMENT=133 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=216 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -584,7 +1024,7 @@ CREATE TABLE `enrollments` (
 
 LOCK TABLES `enrollments` WRITE;
 /*!40000 ALTER TABLE `enrollments` DISABLE KEYS */;
-INSERT INTO `enrollments` (`enrollment_id`, `student_id`, `section_id`, `registration_type`, `status`, `registered_on`, `dropped_on`, `created_at`, `updated_at`) VALUES (1,1,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(2,2,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(3,3,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(4,4,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(5,5,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(6,6,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(7,7,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(8,8,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(9,9,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(10,10,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(11,1,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(12,2,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(13,3,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(14,4,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(15,5,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(16,6,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(17,7,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(18,8,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(19,9,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(20,10,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(21,1,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(22,2,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(23,3,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(24,4,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(25,5,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(26,6,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(27,7,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(28,8,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(29,9,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(30,10,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03');
+INSERT INTO `enrollments` (`enrollment_id`, `student_id`, `section_id`, `registration_type`, `status`, `registered_on`, `dropped_on`, `created_at`, `updated_at`) VALUES (1,1,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(2,2,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(3,3,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(4,4,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(5,5,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(6,6,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(7,7,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(8,8,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(9,9,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(10,10,1,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(11,1,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(12,2,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(13,3,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(14,4,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(15,5,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(16,6,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(17,7,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(18,8,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(19,9,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(20,10,2,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(21,1,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(22,2,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(23,3,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(24,4,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(25,5,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(26,6,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(27,7,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(28,8,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(29,9,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(30,10,3,'REGULAR','REGISTERED','2026-06-01',NULL,'2026-09-24 15:07:03','2026-09-24 15:07:03'),(143,154,1,'REGULAR','REGISTERED','2026-10-28',NULL,'2026-10-28 09:05:51','2026-10-28 09:05:51'),(146,156,1,'REGULAR','REGISTERED','2026-10-28',NULL,'2026-10-28 09:05:55','2026-10-28 09:05:55');
 /*!40000 ALTER TABLE `enrollments` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -621,7 +1061,7 @@ CREATE TABLE `faculty` (
   CONSTRAINT `fk_fac_dept` FOREIGN KEY (`department_id`, `school_id`) REFERENCES `departments` (`department_id`, `school_id`),
   CONSTRAINT `fk_fac_desig` FOREIGN KEY (`designation_id`) REFERENCES `designations` (`designation_id`),
   CONSTRAINT `fk_fac_school` FOREIGN KEY (`school_id`) REFERENCES `schools` (`school_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=97 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=146 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -630,7 +1070,7 @@ CREATE TABLE `faculty` (
 
 LOCK TABLES `faculty` WRITE;
 /*!40000 ALTER TABLE `faculty` DISABLE KEYS */;
-INSERT INTO `faculty` (`faculty_id`, `employee_code`, `full_name`, `gender`, `date_of_birth`, `blood_group`, `joining_year`, `in_charge_class`, `phone`, `email`, `designation_id`, `school_id`, `department_id`, `is_active`, `created_at`, `updated_at`) VALUES (1,'FAC001','Dr. Rajesh Kumar','male','1980-08-22','B+',2021,'CSE-AIML Sec A','9000000002','rajesh.kumar@joyuniversity.edu.in',4,3,5,1,'2026-09-24 09:51:58','2026-10-27 05:01:14'),(2,'FAC002','Dr. Priya Sharma','male','1980-08-22','B+',2021,'CSE-AIML Sec A','9000000002','priya.sharma@joyuniversity.edu.in',2,3,5,1,'2026-09-24 09:51:58','2026-09-24 09:51:58'),(3,'FAC003','Dr. Arun Kumar','male','1980-08-22','B+',2021,'CSE-AIML Sec A','9000000002','arun.kumar@joyuniversity.edu.in',3,3,5,1,'2026-09-24 09:51:58','2026-09-24 09:51:58'),(4,'FAC004','Dr. Sneha Reddy','male','1980-08-22','B+',2021,'CSE-AIML Sec A','9000000002','sneha.reddy@joyuniversity.edu.in',3,3,5,1,'2026-09-24 09:51:58','2026-10-23 08:22:45');
+INSERT INTO `faculty` (`faculty_id`, `employee_code`, `full_name`, `gender`, `date_of_birth`, `blood_group`, `joining_year`, `in_charge_class`, `phone`, `email`, `designation_id`, `school_id`, `department_id`, `is_active`, `created_at`, `updated_at`) VALUES (1,'FAC001','Dr. Rajesh Kumar','male','1980-08-22','B+',2021,'CSE-AIML Sec A','9000000002','rajesh.kumar@joyuniversity.edu.in',4,3,5,1,'2026-09-24 09:51:58','2026-10-27 05:01:14'),(2,'FAC002','Dr. Priya Sharma','male','1980-08-22','B+',2021,'CSE-AIML Sec A','9000000002','priya.sharma@joyuniversity.edu.in',2,3,5,1,'2026-09-24 09:51:58','2026-09-24 09:51:58'),(3,'FAC003','Dr. Arun Kumar','male','1980-08-22','B+',2021,'CSE-AIML Sec A','9000000002','arun.kumar@joyuniversity.edu.in',3,3,5,1,'2026-09-24 09:51:58','2026-09-24 09:51:58'),(4,'FAC004','Dr. Sneha Reddy','male','1980-08-22','B+',2021,'CSE-AIML Sec A','9000000002','sneha.reddy@joyuniversity.edu.in',3,3,5,1,'2026-09-24 09:51:58','2026-10-23 08:22:45'),(105,'FAC_QA_1793183158776','Dr. QA Automated Faculty Updated test',NULL,NULL,'A-',NULL,'ABC Test',NULL,'qa_1793183158776@joyuniversity.edu.in',1,3,5,1,'2026-10-28 10:25:58','2026-11-02 05:38:27'),(111,'FAC0001','Dr. Narasimha Uppara','male','1980-07-30','A+',2023,'CSE AI ML SEC A','9393027759','narasimha@joyuniversity.edu.in',1,3,5,1,'2026-10-29 04:03:42','2026-10-29 04:07:01');
 /*!40000 ALTER TABLE `faculty` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -741,7 +1181,7 @@ CREATE TABLE `programmes` (
   CONSTRAINT `fk_prog_dept` FOREIGN KEY (`department_id`, `school_id`) REFERENCES `departments` (`department_id`, `school_id`),
   CONSTRAINT `fk_prog_school` FOREIGN KEY (`school_id`) REFERENCES `schools` (`school_id`),
   CONSTRAINT `ck_prog_duration` CHECK (((`duration_years` > 0) and (`duration_years` <= 8)))
-) ENGINE=InnoDB AUTO_INCREMENT=217 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=245 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -750,7 +1190,7 @@ CREATE TABLE `programmes` (
 
 LOCK TABLES `programmes` WRITE;
 /*!40000 ALTER TABLE `programmes` DISABLE KEYS */;
-INSERT INTO `programmes` (`programme_id`, `school_id`, `department_id`, `degree_id`, `programme_code`, `name`, `partner_track`, `duration_years`, `is_active`, `created_at`, `updated_at`) VALUES (77,1,1,1,NULL,'Agricultural Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(78,1,1,1,NULL,'Dairy Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(79,1,1,4,NULL,'Agriculture','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(80,1,1,4,NULL,'Horticulture','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(81,1,1,16,NULL,'Agronomy','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(82,1,1,16,NULL,'Agricultural Entomology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(83,1,1,16,NULL,'Agricultural Extension Education','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(84,1,1,16,NULL,'Floriculture and Landscaping','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(85,1,1,16,NULL,'Vegetable Science','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(86,2,2,9,NULL,'English','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(87,2,2,9,NULL,'Tamil','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(88,2,2,9,NULL,'Criminology & Police Administration','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(89,2,3,3,NULL,'Forensic Science','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(90,2,3,3,NULL,'Psychology','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(91,2,3,3,NULL,'Renewable Energy','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(92,2,3,3,NULL,'Film & TV Production','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(93,2,4,19,NULL,'Library & Information Science','STANDARD',1.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(94,2,3,16,NULL,'Psychology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(95,3,5,1,NULL,'CSE (Artificial Intelligence & Data Science)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(96,3,5,1,NULL,'CSE (Artificial Intelligence & IoT)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(97,3,5,1,NULL,'CSE (Artificial Intelligence & Machine Learning)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(98,3,5,1,NULL,'CSE (Artificial Intelligence & Robotics)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(99,3,5,1,NULL,'CSE (Cyber Security)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(100,3,5,1,NULL,'Computer Science & Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(101,3,5,1,NULL,'Information & Communication Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(102,3,5,4,NULL,'CSE (Artificial Intelligence & Machine Learning)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(103,3,5,4,NULL,'CSE (Artificial Intelligence & Data Science)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(104,3,5,5,NULL,'Artificial Intelligence','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(105,3,5,5,NULL,'Cyber Security','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(106,3,5,15,NULL,'CSE (Artificial Intelligence & Machine Learning)','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(107,4,6,1,NULL,'Aeronautical Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(108,4,6,1,NULL,'Biomedical Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(109,4,6,1,NULL,'Biotechnology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(110,4,6,1,NULL,'Civil Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(111,4,6,1,NULL,'Electronics & Communication Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(112,4,6,1,NULL,'ECE (Artificial Intelligence & IoT)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(113,4,6,1,NULL,'ECE (VLSI)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(114,4,6,1,NULL,'ECE (Artificial Intelligence & Machine Learning)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(115,4,6,1,NULL,'Mechanical Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(116,4,6,1,NULL,'Mech (Artificial Intelligence & Machine Learning)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(117,4,6,1,NULL,'Mech (Robotics & Automation)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(118,4,6,1,NULL,'Mechatronics','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(119,4,6,1,NULL,'Petrochemical Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(120,4,7,2,NULL,'Fashion Design','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(121,5,8,7,NULL,'Logistics & Supply Chain Management','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(122,5,8,7,NULL,'Business Analytics','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(123,5,8,7,NULL,'Digital Marketing','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(124,5,8,7,NULL,'Financial Management','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(125,5,8,7,NULL,'Entrepreneurial Management','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(126,5,8,17,NULL,'Human Resource Management','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(127,5,8,17,NULL,'Marketing Management','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(128,5,8,17,NULL,'Business Analytics','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(129,5,8,17,NULL,'Entrepreneurial Management','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(130,5,8,17,NULL,'International Business','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(131,5,9,8,NULL,'Accounting & Finance','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(132,5,9,8,NULL,'Computer Application','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(133,5,9,8,NULL,'General','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(134,5,9,8,NULL,'FinTech & AI','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(135,6,10,10,NULL,'Arts & Legislative Law','STANDARD',5.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(136,6,10,11,NULL,'Business Administration & Legislative Law','STANDARD',5.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(137,6,10,12,'BLLB','Legislative Law','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-10-28 06:36:10'),(138,6,10,18,NULL,'Taxation Law','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(139,6,10,18,NULL,'Cybercrime','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(140,7,11,3,NULL,'Operation Theatre & Anaesthesia Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(141,7,11,3,NULL,'Medical Radiology & Imaging Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(142,7,11,3,NULL,'Cardiac Perfusion Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(143,7,11,3,NULL,'Medical Laboratory Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(144,7,11,3,NULL,'Physician Assistant','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(145,7,11,16,NULL,'Operation Theatre & Anaesthesia Technology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(146,7,11,16,NULL,'Cardiac Perfusion Technology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(147,7,12,3,NULL,'Biotechnology','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(148,7,12,16,NULL,'Biotechnology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(149,7,13,6,NULL,'Bachelor of Physiotherapy','STANDARD',5.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(150,8,14,3,NULL,'Nursing','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(151,9,15,13,NULL,'Pharmacy','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(152,9,15,14,NULL,'Pharmacy','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(154,3,5,1,'AI2666','Aerospace Informatics 1791520192666 Updated','STANDARD',4.0,0,'2026-10-09 04:29:52','2026-10-09 04:29:52'),(155,3,5,1,'AI5575','Aerospace Informatics 1791520205575 Updated','STANDARD',4.0,0,'2026-10-09 04:30:05','2026-10-09 04:30:05'),(156,3,5,1,'AI9954','Aerospace Informatics 1791520809954 Updated','STANDARD',4.0,0,'2026-10-09 04:40:09','2026-10-09 04:40:09'),(157,3,5,1,'AI1315','Aerospace Informatics 1791521111315 Updated','STANDARD',4.0,0,'2026-10-09 04:45:11','2026-10-09 04:45:11'),(158,3,5,1,'AI3755','Aerospace Informatics 1791522113755 Updated','STANDARD',4.0,0,'2026-10-09 05:01:53','2026-10-09 05:01:53'),(159,3,5,1,'AI7322','Aerospace Informatics 1791522147322 Updated','STANDARD',4.0,0,'2026-10-09 05:02:27','2026-10-09 05:02:27'),(160,3,5,1,'AI7837','Aerospace Informatics 1791524797837 Updated','STANDARD',4.0,0,'2026-10-09 05:46:37','2026-10-09 05:46:37'),(161,3,5,1,'AI8197','Aerospace Informatics 1791525328197 Updated','STANDARD',4.0,0,'2026-10-09 05:55:28','2026-10-09 05:55:28'),(162,3,5,1,'AI8904','Aerospace Informatics 1791526128904 Updated','STANDARD',4.0,0,'2026-10-09 06:08:48','2026-10-09 06:08:48'),(163,3,5,1,'AI6264','Aerospace Informatics 1791528416264 Updated','STANDARD',4.0,0,'2026-10-09 06:46:56','2026-10-09 06:46:56'),(164,3,5,1,'AI5350','Aerospace Informatics 1791537565349 Updated','STANDARD',4.0,0,'2026-10-09 09:19:25','2026-10-09 09:19:25'),(165,3,5,1,'AI1045','Aerospace Informatics 1791538831045 Updated','STANDARD',4.0,0,'2026-10-09 09:40:31','2026-10-09 09:40:31'),(166,3,5,1,'AI2647','Aerospace Informatics 1791538962647 Updated','STANDARD',4.0,0,'2026-10-09 09:42:42','2026-10-09 09:42:42'),(167,3,5,1,'AI2757','Aerospace Informatics 1791539002757 Updated','STANDARD',4.0,0,'2026-10-09 09:43:22','2026-10-09 09:43:22'),(168,3,5,1,'AI2948','Aerospace Informatics 1791539072948 Updated','STANDARD',4.0,0,'2026-10-09 09:44:32','2026-10-09 09:44:32'),(169,3,5,1,'AI0850','Aerospace Informatics 1791539490850 Updated','STANDARD',4.0,0,'2026-10-09 09:51:30','2026-10-09 09:51:30'),(170,3,5,1,'AI4169','Aerospace Informatics 1791539594169 Updated','STANDARD',4.0,0,'2026-10-09 09:53:14','2026-10-09 09:53:14'),(171,3,5,1,'AI1798','Aerospace Informatics 1791913561798 Updated','STANDARD',4.0,0,'2026-10-13 17:46:01','2026-10-13 17:46:01'),(172,3,5,1,'AI8477','Aerospace Informatics 1791914148477 Updated','STANDARD',4.0,0,'2026-10-13 17:55:48','2026-10-13 17:55:48'),(173,3,5,1,'AI5706','Aerospace Informatics 1791914165706 Updated','STANDARD',4.0,0,'2026-10-13 17:56:05','2026-10-13 17:56:05'),(174,3,5,1,'AI4984','Aerospace Informatics 1791914654984 Updated','STANDARD',4.0,0,'2026-10-13 18:04:14','2026-10-13 18:04:15'),(175,3,5,1,'AI7716','Aerospace Informatics 1791914667716 Updated','STANDARD',4.0,0,'2026-10-13 18:04:27','2026-10-13 18:04:27'),(176,3,5,1,'AI3796','Aerospace Informatics 1792557363796 Updated','STANDARD',4.0,0,'2026-10-21 04:36:03','2026-10-21 04:36:03'),(177,3,5,1,'AI9152','Aerospace Informatics 1792557439152 Updated','STANDARD',4.0,0,'2026-10-21 04:37:19','2026-10-21 04:37:19'),(178,3,5,1,'AI5137','Aerospace Informatics 1792557535137 Updated','STANDARD',4.0,0,'2026-10-21 04:38:55','2026-10-21 04:38:55'),(179,3,5,1,'AI2875','Aerospace Informatics 1792557942875 Updated','STANDARD',4.0,0,'2026-10-21 04:45:42','2026-10-21 04:45:42'),(180,3,5,1,'AI5026','Aerospace Informatics 1792558075026 Updated','STANDARD',4.0,0,'2026-10-21 04:47:55','2026-10-21 04:47:55'),(181,3,5,1,'AI2131','Aerospace Informatics 1792558132131 Updated','STANDARD',4.0,0,'2026-10-21 04:48:52','2026-10-21 04:48:52'),(182,3,5,1,'AI2513','Aerospace Informatics 1792558212513 Updated','STANDARD',4.0,0,'2026-10-21 04:50:12','2026-10-21 04:50:12'),(183,3,5,1,'AI9738','Aerospace Informatics 1792558229738 Updated','STANDARD',4.0,0,'2026-10-21 04:50:29','2026-10-21 04:50:29'),(184,3,5,1,'AI9576','Aerospace Informatics 1792558239576 Updated','STANDARD',4.0,0,'2026-10-21 04:50:39','2026-10-21 04:50:39'),(185,3,5,1,'AI0124','Aerospace Informatics 1792558310124 Updated','STANDARD',4.0,0,'2026-10-21 04:51:50','2026-10-21 04:51:50'),(186,3,5,1,'AI0454','Aerospace Informatics 1792560740454 Updated','STANDARD',4.0,0,'2026-10-21 05:32:20','2026-10-21 05:32:20'),(187,3,5,1,'AI8341','Aerospace Informatics 1792560768341 Updated','STANDARD',4.0,0,'2026-10-21 05:32:48','2026-10-21 05:32:48'),(188,3,5,1,'AI6631','Aerospace Informatics 1792561666631 Updated','STANDARD',4.0,0,'2026-10-21 05:47:46','2026-10-21 05:47:46'),(189,3,5,1,'AI7207','Aerospace Informatics 1792562677207 Updated','STANDARD',4.0,0,'2026-10-21 06:04:37','2026-10-21 06:04:37'),(190,3,5,1,'AI4711','Aerospace Informatics 1792562704711 Updated','STANDARD',4.0,0,'2026-10-21 06:05:04','2026-10-21 06:05:04'),(191,3,5,1,'AI4261','Aerospace Informatics 1792562824261 Updated','STANDARD',4.0,0,'2026-10-21 06:07:04','2026-10-21 06:07:04'),(192,3,5,1,'AI5180','Aerospace Informatics 1792564395180 Updated','STANDARD',4.0,0,'2026-10-21 06:33:15','2026-10-21 06:33:15'),(193,3,5,1,'AI7582','Aerospace Informatics 1792565157582 Updated','STANDARD',4.0,0,'2026-10-21 06:45:57','2026-10-21 06:45:57'),(194,3,5,1,'AI9599','Aerospace Informatics 1792570339599 Updated','STANDARD',4.0,0,'2026-10-21 08:12:19','2026-10-21 08:12:19'),(195,3,5,1,'AI0080','Aerospace Informatics 1792732060080 Updated','STANDARD',4.0,0,'2026-10-23 05:07:40','2026-10-23 05:07:40'),(196,3,5,1,'AI4397','Aerospace Informatics 1792732624397 Updated','STANDARD',4.0,0,'2026-10-23 05:17:04','2026-10-23 05:17:04'),(197,3,5,1,'AI5689','Aerospace Informatics 1792735705689 Updated','STANDARD',4.0,0,'2026-10-23 06:08:25','2026-10-23 06:08:25'),(198,3,5,1,'AI4316','Aerospace Informatics 1792735834316 Updated','STANDARD',4.0,0,'2026-10-23 06:10:34','2026-10-23 06:10:34'),(199,3,5,1,'AI1519','Aerospace Informatics 1792736191519 Updated','STANDARD',4.0,0,'2026-10-23 06:16:31','2026-10-23 06:16:31'),(200,3,5,1,'AI4154','Aerospace Informatics 1792737484154 Updated','STANDARD',4.0,0,'2026-10-23 06:38:04','2026-10-23 06:38:04'),(201,3,5,1,'AI2828','Aerospace Informatics 1792737852828 Updated','STANDARD',4.0,0,'2026-10-23 06:44:12','2026-10-23 06:44:12'),(202,3,5,1,'AI3656','Aerospace Informatics 1792738333656 Updated','STANDARD',4.0,0,'2026-10-23 06:52:13','2026-10-23 06:52:13'),(203,3,5,1,'AI1556','Aerospace Informatics 1792744201556 Updated','STANDARD',4.0,0,'2026-10-23 08:30:01','2026-10-23 08:30:01'),(204,3,5,1,'AI4838','Aerospace Informatics 1792988344838 Updated','STANDARD',4.0,0,'2026-10-26 04:19:04','2026-10-26 04:19:04'),(205,3,5,1,'AI0633','Aerospace Informatics 1792988710633 Updated','STANDARD',4.0,0,'2026-10-26 04:25:10','2026-10-26 04:25:10'),(206,3,5,1,'AI1528','Aerospace Informatics 1792988751528 Updated','STANDARD',4.0,0,'2026-10-26 04:25:51','2026-10-26 04:25:51'),(207,3,5,1,'AI2913','Aerospace Informatics 1792988822913 Updated','STANDARD',4.0,0,'2026-10-26 04:27:02','2026-10-26 04:27:02'),(208,3,5,1,'AI2606','Aerospace Informatics 1792988862606 Updated','STANDARD',4.0,0,'2026-10-26 04:27:42','2026-10-26 04:27:42'),(209,3,5,1,'AI4217','Aerospace Informatics 1792989024217 Updated','STANDARD',4.0,0,'2026-10-26 04:30:24','2026-10-26 04:30:24'),(210,3,5,1,'AI6900','Aerospace Informatics 1793006296900 Updated','STANDARD',4.0,0,'2026-10-26 09:18:16','2026-10-26 09:18:16'),(211,3,5,1,'AI4831','Aerospace Informatics 1793006814831 Updated','STANDARD',4.0,0,'2026-10-26 09:26:54','2026-10-26 09:26:54'),(212,3,5,1,'AI1677','Aerospace Informatics 1793077641677 Updated','STANDARD',4.0,0,'2026-10-27 05:07:21','2026-10-27 05:07:21'),(213,3,5,1,'AI9982','Aerospace Informatics 1793082159982 Updated','STANDARD',4.0,0,'2026-10-27 06:22:39','2026-10-27 06:22:40'),(214,3,5,1,'AI8367','Aerospace Informatics 1793083978367 Updated','STANDARD',4.0,0,'2026-10-27 06:52:58','2026-10-27 06:52:58'),(215,3,5,1,'AI3144','Aerospace Informatics 1793170443144 Updated','STANDARD',4.0,0,'2026-10-28 06:54:03','2026-10-28 06:54:03'),(216,3,5,1,'AI7824','Aerospace Informatics 1793170557824 Updated','STANDARD',4.0,0,'2026-10-28 06:55:57','2026-10-28 06:55:57');
+INSERT INTO `programmes` (`programme_id`, `school_id`, `department_id`, `degree_id`, `programme_code`, `name`, `partner_track`, `duration_years`, `is_active`, `created_at`, `updated_at`) VALUES (77,1,1,1,NULL,'Agricultural Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(78,1,1,1,NULL,'Dairy Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(79,1,1,4,NULL,'Agriculture','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(80,1,1,4,NULL,'Horticulture','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(81,1,1,16,NULL,'Agronomy','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(82,1,1,16,NULL,'Agricultural Entomology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(83,1,1,16,NULL,'Agricultural Extension Education','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(84,1,1,16,NULL,'Floriculture and Landscaping','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(85,1,1,16,NULL,'Vegetable Science','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(86,2,2,9,NULL,'English','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(87,2,2,9,NULL,'Tamil','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(88,2,2,9,NULL,'Criminology & Police Administration','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(89,2,3,3,NULL,'Forensic Science','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(90,2,3,3,NULL,'Psychology','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(91,2,3,3,NULL,'Renewable Energy','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(92,2,3,3,NULL,'Film & TV Production','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(93,2,4,19,NULL,'Library & Information Science','STANDARD',1.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(94,2,3,16,NULL,'Psychology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(95,3,5,1,NULL,'CSE (Artificial Intelligence & Data Science)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(96,3,5,1,NULL,'CSE (Artificial Intelligence & IoT)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(97,3,5,1,NULL,'CSE (Artificial Intelligence & Machine Learning)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(98,3,5,1,NULL,'CSE (Artificial Intelligence & Robotics)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(99,3,5,1,NULL,'CSE (Cyber Security)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(100,3,5,1,NULL,'Computer Science & Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(101,3,5,1,NULL,'Information & Communication Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(102,3,5,4,NULL,'CSE (Artificial Intelligence & Machine Learning)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(103,3,5,4,NULL,'CSE (Artificial Intelligence & Data Science)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(104,3,5,5,NULL,'Artificial Intelligence','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(105,3,5,5,NULL,'Cyber Security','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(106,3,5,15,NULL,'CSE (Artificial Intelligence & Machine Learning)','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(107,4,6,1,NULL,'Aeronautical Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(108,4,6,1,NULL,'Biomedical Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(109,4,6,1,NULL,'Biotechnology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(110,4,6,1,NULL,'Civil Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(111,4,6,1,NULL,'Electronics & Communication Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(112,4,6,1,NULL,'ECE (Artificial Intelligence & IoT)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(113,4,6,1,NULL,'ECE (VLSI)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(114,4,6,1,NULL,'ECE (Artificial Intelligence & Machine Learning)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(115,4,6,1,NULL,'Mechanical Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(116,4,6,1,NULL,'Mech (Artificial Intelligence & Machine Learning)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(117,4,6,1,NULL,'Mech (Robotics & Automation)','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(118,4,6,1,NULL,'Mechatronics','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(119,4,6,1,NULL,'Petrochemical Engineering','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(120,4,7,2,NULL,'Fashion Design','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(121,5,8,7,NULL,'Logistics & Supply Chain Management','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(122,5,8,7,NULL,'Business Analytics','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(123,5,8,7,NULL,'Digital Marketing','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(124,5,8,7,NULL,'Financial Management','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(125,5,8,7,NULL,'Entrepreneurial Management','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(126,5,8,17,NULL,'Human Resource Management','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(127,5,8,17,NULL,'Marketing Management','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(128,5,8,17,NULL,'Business Analytics','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(129,5,8,17,NULL,'Entrepreneurial Management','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(130,5,8,17,NULL,'International Business','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(131,5,9,8,NULL,'Accounting & Finance','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(132,5,9,8,NULL,'Computer Application','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(133,5,9,8,NULL,'General','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(134,5,9,8,NULL,'FinTech & AI','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(135,6,10,10,NULL,'Arts & Legislative Law','STANDARD',5.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(136,6,10,11,NULL,'Business Administration & Legislative Law','STANDARD',5.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(137,6,10,12,'BLLB','Legislative Law','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-10-28 06:36:10'),(138,6,10,18,NULL,'Taxation Law','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(139,6,10,18,NULL,'Cybercrime','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(140,7,11,3,NULL,'Operation Theatre & Anaesthesia Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(141,7,11,3,NULL,'Medical Radiology & Imaging Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(142,7,11,3,NULL,'Cardiac Perfusion Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(143,7,11,3,NULL,'Medical Laboratory Technology','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(144,7,11,3,NULL,'Physician Assistant','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(145,7,11,16,NULL,'Operation Theatre & Anaesthesia Technology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(146,7,11,16,NULL,'Cardiac Perfusion Technology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(147,7,12,3,NULL,'Biotechnology','STANDARD',3.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(148,7,12,16,NULL,'Biotechnology','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(149,7,13,6,NULL,'Bachelor of Physiotherapy','STANDARD',5.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(150,8,14,3,NULL,'Nursing','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(151,9,15,13,NULL,'Pharmacy','STANDARD',4.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(152,9,15,14,NULL,'Pharmacy','STANDARD',2.0,1,'2026-09-24 09:13:22','2026-09-24 09:13:22'),(244,3,5,1,'A0061380','Aerospace Informatics 1794460061380 Updated','STANDARD',4.0,0,'2026-11-12 05:07:41','2026-11-12 05:07:41');
 /*!40000 ALTER TABLE `programmes` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -774,7 +1214,7 @@ CREATE TABLE `revoked_tokens` (
   KEY `idx_revoked_tokens_expires_at` (`expires_at`),
   KEY `idx_revoked_tokens_user_id` (`user_id`),
   CONSTRAINT `fk_revoked_tokens_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=912 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1139 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -783,7 +1223,7 @@ CREATE TABLE `revoked_tokens` (
 
 LOCK TABLES `revoked_tokens` WRITE;
 /*!40000 ALTER TABLE `revoked_tokens` DISABLE KEYS */;
-INSERT INTO `revoked_tokens` (`id`, `jti`, `user_id`, `expires_at`, `revoked_at`, `created_at`) VALUES (892,'f4360876-6472-4eb9-b6d6-3485395a9a55',4,'2026-10-28 13:46:58','2026-10-28 09:33:06','2026-10-28 04:03:06'),(893,'debe418f-a311-4c0c-9669-7b05cf09b985',1,'2026-10-29 09:33:14','2026-10-28 09:35:42','2026-10-28 04:05:42'),(894,'cf2576b7-10e4-4e11-bfb1-2a53f08d567c',5,'2026-10-29 09:35:50','2026-10-28 09:49:38','2026-10-28 04:19:38'),(895,'921c3661-715e-450e-867f-53748ca31ed9',1,'2026-10-29 09:49:44','2026-10-28 09:53:50','2026-10-28 04:23:50'),(896,'1490185b-081a-4684-9f9f-f9e788c94b04',5,'2026-10-29 09:53:58','2026-10-28 11:49:26','2026-10-28 06:19:26'),(897,'07fc2ca4-66db-4046-bad3-5d0224c0da5f',3,'2026-10-29 11:49:29','2026-10-28 11:56:43','2026-10-28 06:26:43'),(898,'28040b0b-65ad-4a3a-b0f3-e2a3f68ab127',1,'2026-10-29 12:24:00','2026-10-28 12:24:01','2026-10-28 06:54:01'),(899,'378ba8d5-7959-4053-aa49-65c4b7f02368',4,'2026-10-29 12:24:01','2026-10-28 12:24:01','2026-10-28 06:54:01'),(900,'e33016b0-48ed-4cde-b814-fb602cc8b6ed',3,'2026-10-29 12:24:01','2026-10-28 12:24:01','2026-10-28 06:54:01'),(901,'6f856990-7c7a-43e9-a9c1-16e48698f62d',3,'2026-10-29 12:24:01','2026-10-28 12:24:01','2026-10-28 06:54:01'),(902,'538e6272-03c3-44f4-921a-01df5548a6d8',4,'2026-10-29 12:24:01','2026-10-28 12:24:01','2026-10-28 06:54:01'),(903,'77d8421e1a4c9843738f7ae290cb5e1c984ba9a5778b6bc80c229ac9c87371cb',3,'2026-10-28 13:24:01','2026-10-28 12:24:01','2026-10-28 06:54:01'),(905,'761733de-0162-4a56-b22c-b95570412fa3',1,'2026-10-29 12:25:55','2026-10-28 12:25:55','2026-10-28 06:55:55'),(906,'5fe52094-4586-4f5e-9480-3f12a938183e',4,'2026-10-29 12:25:55','2026-10-28 12:25:55','2026-10-28 06:55:55'),(907,'70299a53-c963-4e45-85d7-9a1ff3c8534e',3,'2026-10-29 12:25:55','2026-10-28 12:25:55','2026-10-28 06:55:55'),(908,'a0e82966-bfac-468b-928c-fcb2acf6af54',3,'2026-10-29 12:25:55','2026-10-28 12:25:55','2026-10-28 06:55:55'),(909,'86a7bd5f-7a8d-47b9-b05a-4c2225d0ba49',4,'2026-10-29 12:25:55','2026-10-28 12:25:56','2026-10-28 06:55:56'),(910,'c11c2c48780f8a2dd18ef23b730719d452a225c1dc418540b41d71880ef46e2d',3,'2026-10-28 13:25:56','2026-10-28 12:25:56','2026-10-28 06:55:56');
+INSERT INTO `revoked_tokens` (`id`, `jti`, `user_id`, `expires_at`, `revoked_at`, `created_at`) VALUES (1131,'e824a079-f380-4ae4-a874-64ced288f5f9',3,'2026-11-13 09:22:12','2026-11-12 10:32:02','2026-11-12 05:02:02'),(1132,'eb04c2d1-d1f7-47ff-a6da-ab8147fed434',1,'2026-11-13 10:37:39','2026-11-12 10:37:39','2026-11-12 05:07:39'),(1133,'93002319-160a-4d03-a115-1fd436c6b9d0',4,'2026-11-13 10:37:39','2026-11-12 10:37:39','2026-11-12 05:07:39'),(1134,'b1c9a69e-6c53-4540-80f7-11a6caec95f1',3,'2026-11-13 10:37:39','2026-11-12 10:37:39','2026-11-12 05:07:39'),(1135,'4192a423-890f-46d4-9767-81b8b38ab2da',3,'2026-11-13 10:37:39','2026-11-12 10:37:39','2026-11-12 05:07:39'),(1136,'71d13aae-eb32-4133-983e-28a1eadb46f1',4,'2026-11-13 10:37:39','2026-11-12 10:37:39','2026-11-12 05:07:39'),(1137,'9df6d7081ffa8a9925507dfb312c2f6d0ad1a2db130e2fbfd2135f53eb802a22',3,'2026-11-12 11:37:39','2026-11-12 10:37:39','2026-11-12 05:07:39');
 /*!40000 ALTER TABLE `revoked_tokens` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -835,7 +1275,7 @@ CREATE TABLE `schema_migrations` (
   `executed_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `version` (`version`)
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -844,7 +1284,7 @@ CREATE TABLE `schema_migrations` (
 
 LOCK TABLES `schema_migrations` WRITE;
 /*!40000 ALTER TABLE `schema_migrations` DISABLE KEYS */;
-INSERT INTO `schema_migrations` (`id`, `version`, `executed_at`) VALUES (1,'001_create_revoked_tokens.sql','2026-10-13 17:54:59'),(2,'002_add_batch_id_to_sections.sql','2026-10-13 17:54:59'),(3,'003_allow_multiple_sessions_per_date.sql','2026-10-21 06:03:00'),(4,'005_add_profile_demographics.sql','2026-10-27 05:03:27'),(5,'004_add_full_name_to_users.sql','2026-10-28 08:23:19'),(6,'006_remove_demographic_defaults.sql','2026-10-28 08:23:20');
+INSERT INTO `schema_migrations` (`id`, `version`, `executed_at`) VALUES (1,'001_create_revoked_tokens.sql','2026-10-13 17:54:59'),(2,'002_add_batch_id_to_sections.sql','2026-10-13 17:54:59'),(3,'003_allow_multiple_sessions_per_date.sql','2026-10-21 06:03:00'),(4,'005_add_profile_demographics.sql','2026-10-27 05:03:27'),(5,'004_add_full_name_to_users.sql','2026-10-28 08:23:19'),(6,'006_remove_demographic_defaults.sql','2026-10-28 08:23:20'),(7,'007_create_academic_module.sql','2026-11-05 04:17:53');
 /*!40000 ALTER TABLE `schema_migrations` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -865,7 +1305,7 @@ CREATE TABLE `schools` (
   PRIMARY KEY (`school_id`),
   UNIQUE KEY `uq_schools_code` (`code`),
   UNIQUE KEY `uq_schools_name` (`name`)
-) ENGINE=InnoDB AUTO_INCREMENT=74 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=103 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -874,7 +1314,7 @@ CREATE TABLE `schools` (
 
 LOCK TABLES `schools` WRITE;
 /*!40000 ALTER TABLE `schools` DISABLE KEYS */;
-INSERT INTO `schools` (`school_id`, `code`, `name`, `is_active`, `created_at`, `updated_at`) VALUES (1,'SOAGS','School of Agricultural Sciences',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(2,'SOANS','School of Arts & Natural Sciences',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(3,'SOCI','School of Computational Intelligence',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(4,'SOET','School of Engineering and Technology',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(5,'SOEM','School of Entrepreneurship and Management',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(6,'SOL','School of Law',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(7,'SOLHS','School of Life & Health Sciences',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(8,'SON','School of Nursing',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(9,'SOP','School of Pharmacy',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(33,'ST3733','Updated Test School ST3733',0,'2026-10-21 04:36:03','2026-10-21 04:36:03'),(34,'ST9112','Updated Test School ST9112',0,'2026-10-21 04:37:19','2026-10-21 04:37:19'),(35,'ST5093','Updated Test School ST5093',0,'2026-10-21 04:38:55','2026-10-21 04:38:55'),(36,'ST2826','Updated Test School ST2826',0,'2026-10-21 04:45:42','2026-10-21 04:45:42'),(37,'ST4971','Updated Test School ST4971',0,'2026-10-21 04:47:54','2026-10-21 04:47:54'),(38,'ST2088','Updated Test School ST2088',0,'2026-10-21 04:48:52','2026-10-21 04:48:52'),(39,'ST2468','Updated Test School ST2468',0,'2026-10-21 04:50:12','2026-10-21 04:50:12'),(40,'ST9692','Updated Test School ST9692',0,'2026-10-21 04:50:29','2026-10-21 04:50:29'),(41,'ST9519','Updated Test School ST9519',0,'2026-10-21 04:50:39','2026-10-21 04:50:39'),(42,'ST0081','Updated Test School ST0081',0,'2026-10-21 04:51:50','2026-10-21 04:51:50'),(43,'ST0402','Updated Test School ST0402',0,'2026-10-21 05:32:20','2026-10-21 05:32:20'),(44,'ST8289','Updated Test School ST8289',0,'2026-10-21 05:32:48','2026-10-21 05:32:48'),(45,'ST6557','Updated Test School ST6557',0,'2026-10-21 05:47:46','2026-10-21 05:47:46'),(46,'ST7077','Updated Test School ST7077',0,'2026-10-21 06:04:37','2026-10-21 06:04:37'),(47,'ST4610','Updated Test School ST4610',0,'2026-10-21 06:05:04','2026-10-21 06:05:04'),(48,'ST4149','Updated Test School ST4149',0,'2026-10-21 06:07:04','2026-10-21 06:07:04'),(49,'ST5097','Updated Test School ST5097',0,'2026-10-21 06:33:15','2026-10-21 06:33:15'),(50,'ST7485','Updated Test School ST7485',0,'2026-10-21 06:45:57','2026-10-21 06:45:57'),(51,'ST9511','Updated Test School ST9511',0,'2026-10-21 08:12:19','2026-10-21 08:12:19'),(52,'ST9972','Updated Test School ST9972',0,'2026-10-23 05:07:39','2026-10-23 05:07:40'),(53,'ST4272','Updated Test School ST4272',0,'2026-10-23 05:17:04','2026-10-23 05:17:04'),(54,'ST5641','Updated Test School ST5641',0,'2026-10-23 06:08:25','2026-10-23 06:08:25'),(55,'ST4268','Updated Test School ST4268',0,'2026-10-23 06:10:34','2026-10-23 06:10:34'),(56,'ST1469','Updated Test School ST1469',0,'2026-10-23 06:16:31','2026-10-23 06:16:31'),(57,'ST4100','Updated Test School ST4100',0,'2026-10-23 06:38:04','2026-10-23 06:38:04'),(58,'ST2770','Updated Test School ST2770',0,'2026-10-23 06:44:12','2026-10-23 06:44:12'),(59,'ST3608','Updated Test School ST3608',0,'2026-10-23 06:52:13','2026-10-23 06:52:13'),(60,'ST1430','Updated Test School ST1430',0,'2026-10-23 08:30:01','2026-10-23 08:30:01'),(61,'ST4750','Updated Test School ST4750',0,'2026-10-26 04:19:04','2026-10-26 04:19:04'),(62,'ST0566','Updated Test School ST0566',0,'2026-10-26 04:25:10','2026-10-26 04:25:10'),(63,'ST1458','Updated Test School ST1458',0,'2026-10-26 04:25:51','2026-10-26 04:25:51'),(64,'ST2753','Updated Test School ST2753',0,'2026-10-26 04:27:02','2026-10-26 04:27:02'),(65,'ST2509','Updated Test School ST2509',0,'2026-10-26 04:27:42','2026-10-26 04:27:42'),(66,'ST4162','Updated Test School ST4162',0,'2026-10-26 04:30:24','2026-10-26 04:30:24'),(67,'ST6781','Updated Test School ST6781',0,'2026-10-26 09:18:16','2026-10-26 09:18:16'),(68,'ST4700','Updated Test School ST4700',0,'2026-10-26 09:26:54','2026-10-26 09:26:54'),(69,'ST1552','Updated Test School ST1552',0,'2026-10-27 05:07:21','2026-10-27 05:07:21'),(70,'ST9927','Updated Test School ST9927',0,'2026-10-27 06:22:39','2026-10-27 06:22:39'),(71,'ST8239','Updated Test School ST8239',0,'2026-10-27 06:52:58','2026-10-27 06:52:58'),(72,'ST3037','Updated Test School ST3037',0,'2026-10-28 06:54:03','2026-10-28 06:54:03'),(73,'ST7722','Updated Test School ST7722',0,'2026-10-28 06:55:57','2026-10-28 06:55:57');
+INSERT INTO `schools` (`school_id`, `code`, `name`, `is_active`, `created_at`, `updated_at`) VALUES (1,'SOAGS','School of Agricultural Sciences',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(2,'SOANS','School of Arts & Natural Sciences',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(3,'SOCI','School of Computational Intelligence',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(4,'SOET','School of Engineering and Technology',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(5,'SOEM','School of Entrepreneurship and Management',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(6,'SOL','School of Law',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(7,'SOLHS','School of Life & Health Sciences',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(8,'SON','School of Nursing',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(9,'SOP','School of Pharmacy',1,'2026-09-24 08:49:32','2026-09-24 08:49:32'),(102,'ST1286','Updated Test School ST1286',0,'2026-11-12 05:07:41','2026-11-12 05:07:41');
 /*!40000 ALTER TABLE `schools` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -898,7 +1338,7 @@ CREATE TABLE `sections` (
   KEY `idx_sections_batch_id` (`batch_id`),
   CONSTRAINT `fk_sec_batch` FOREIGN KEY (`batch_id`) REFERENCES `batches` (`batch_id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_sec_off` FOREIGN KEY (`offering_id`) REFERENCES `course_offerings` (`offering_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=200 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=287 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -978,7 +1418,7 @@ CREATE TABLE `students` (
   UNIQUE KEY `uq_students_email` (`email`),
   KEY `ix_students_batch` (`batch_id`),
   CONSTRAINT `fk_students_batch` FOREIGN KEY (`batch_id`) REFERENCES `batches` (`batch_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=148 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=203 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -987,8 +1427,43 @@ CREATE TABLE `students` (
 
 LOCK TABLES `students` WRITE;
 /*!40000 ALTER TABLE `students` DISABLE KEYS */;
-INSERT INTO `students` (`student_id`, `register_no`, `full_name`, `gender`, `date_of_birth`, `blood_group`, `email`, `phone`, `batch_id`, `status`, `created_at`, `updated_at`) VALUES (1,'2026BTAM014','UPPARA VINOD','male','2004-05-10','A+','btam26014@joyuniversity.edu.in','9000000001',4,'ACTIVE','2026-09-24 09:45:33','2026-10-28 06:23:39'),(2,'JU26AIML002','Student Two','male','2004-05-10','A+','student2@joyuniversity.edu.in','9000000002',4,'SEMESTER_WITHDRAWAL','2026-09-24 09:45:33','2026-10-28 06:23:39'),(3,'JU26AIML003','Student Three','male','2004-05-10','O+','student3@joyuniversity.edu.in','9000000003',4,'ACTIVE','2026-09-24 09:45:33','2026-10-21 06:43:13'),(4,'JU26AIML004','Student Four','male','2004-05-10','O+','student4@joyuniversity.edu.in','9000000004',4,'TERMINATED','2026-09-24 09:45:33','2026-09-29 03:38:46'),(5,'JU26AIML005','Student Five','male','2004-05-10','O+','student5@joyuniversity.edu.in','9000000005',4,'GRADUATED','2026-09-24 09:45:33','2026-09-29 03:38:53'),(6,'JU26AIML006','Student Six','male','2004-05-10','O+','student6@joyuniversity.edu.in','9000000006',4,'ACTIVE','2026-09-24 09:45:33','2026-09-24 09:45:33'),(7,'JU26AIML007','Student Seven','male','2004-05-10','O+','student7@joyuniversity.edu.in','9000000007',4,'ACTIVE','2026-09-24 09:45:33','2026-09-24 09:45:33'),(8,'JU26AIML008','Student Eight','male','2004-05-10','O+','student8@joyuniversity.edu.in','9000000008',4,'ACTIVE','2026-09-24 09:45:33','2026-09-24 09:45:33'),(9,'JU26AIML009','Student Nine','male','2004-05-10','O+','student9@joyuniversity.edu.in','9000000009',4,'ACTIVE','2026-09-24 09:45:33','2026-09-24 09:45:33'),(10,'JU26AIML010','Student Ten','male','2004-05-10','O+','student10@joyuniversity.edu.in','9000000010',4,'INTERNSHIP_BREAK','2026-09-24 09:45:33','2026-09-29 03:38:18'),(142,'2023BTAM014','UPPARA VINOD','male','2005-07-03','A+','btam23014@joyuniversity.edu.in','+917680841759',1,'ACTIVE','2026-10-27 06:16:31','2026-10-28 04:27:23');
+INSERT INTO `students` (`student_id`, `register_no`, `full_name`, `gender`, `date_of_birth`, `blood_group`, `email`, `phone`, `batch_id`, `status`, `created_at`, `updated_at`) VALUES (1,'2026BTAM014','UPPARA VINOD','male','2004-05-10','A+','btam26014@joyuniversity.edu.in','9000000001',4,'ACTIVE','2026-09-24 09:45:33','2026-10-28 06:23:39'),(2,'JU26AIML002','Student Two','male','2004-05-10','A+','student2@joyuniversity.edu.in','9000000002',4,'SEMESTER_WITHDRAWAL','2026-09-24 09:45:33','2026-10-28 06:23:39'),(3,'JU26AIML003','Student Three','male','2004-05-10','O+','student3@joyuniversity.edu.in','9000000003',4,'ACTIVE','2026-09-24 09:45:33','2026-10-21 06:43:13'),(4,'JU26AIML004','Student Four','male','2004-05-10','O+','student4@joyuniversity.edu.in','9000000004',4,'TERMINATED','2026-09-24 09:45:33','2026-09-29 03:38:46'),(5,'JU26AIML005','Student Five','male','2004-05-10','O+','student5@joyuniversity.edu.in','9000000005',4,'GRADUATED','2026-09-24 09:45:33','2026-09-29 03:38:53'),(6,'JU26AIML006','Student Six','male','2004-05-10','O+','student6@joyuniversity.edu.in','9000000006',4,'ACTIVE','2026-09-24 09:45:33','2026-09-24 09:45:33'),(7,'JU26AIML007','Student Seven','male','2004-05-10','O+','student7@joyuniversity.edu.in','9000000007',4,'ACTIVE','2026-09-24 09:45:33','2026-09-24 09:45:33'),(8,'JU26AIML008','Student Eight','male','2004-05-10','O+','student8@joyuniversity.edu.in','9000000008',4,'ACTIVE','2026-09-24 09:45:33','2026-09-24 09:45:33'),(9,'JU26AIML009','Student Nine. tests','male','2004-05-09','O+','student9@joyuniversity.edu.in','9000000009',4,'ACTIVE','2026-09-24 09:45:33','2026-11-02 05:37:45'),(10,'JU26AIML010','Student Ten','male','2004-05-10','O+','student10@joyuniversity.edu.in','9000000010',4,'INTERNSHIP_BREAK','2026-09-24 09:45:33','2026-09-29 03:38:18'),(142,'2023BTAM014','UPPARA VINOD','male','2005-07-03','A+','btam23014@joyuniversity.edu.in','+917680841759',1,'ACTIVE','2026-10-27 06:16:31','2026-10-28 04:27:23'),(150,'2023BLLB001','Law Student',NULL,NULL,NULL,'bbllb23001@joyuniveristy.edu.in','9000000055',69,'ACTIVE','2026-10-28 09:01:59','2026-10-28 09:01:59'),(154,'ACAD_REG_1793178351851','Full Academic Student Renamed','male','2005-04-12','O+','acad_test_1793178351851@joyuniversity.edu.in','+91 9123456789',4,'INTERNSHIP_BREAK','2026-10-28 09:05:51','2026-10-28 09:05:52'),(156,'ACAD_REG_1793178355800','Full Academic Student Renamed','male','2005-04-12','O+','acad_test_1793178355800@joyuniversity.edu.in','+91 9123456789',4,'INTERNSHIP_BREAK','2026-10-28 09:05:55','2026-10-28 09:05:56');
 /*!40000 ALTER TABLE `students` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `subject_staff_assignments`
+--
+
+DROP TABLE IF EXISTS `subject_staff_assignments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `subject_staff_assignments` (
+  `assignment_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `subject_id` int unsigned NOT NULL,
+  `faculty_id` int unsigned NOT NULL,
+  `role` enum('Subject Staff','Co-Teacher','Lab Assistant') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Subject Staff',
+  `assigned_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`assignment_id`),
+  UNIQUE KEY `uq_subject_faculty_role` (`subject_id`,`faculty_id`,`role`),
+  KEY `fk_ssa_faculty` (`faculty_id`),
+  KEY `fk_ssa_assigned_by` (`assigned_by`),
+  CONSTRAINT `fk_ssa_assigned_by` FOREIGN KEY (`assigned_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ssa_faculty` FOREIGN KEY (`faculty_id`) REFERENCES `faculty` (`faculty_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ssa_subject` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`subject_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `subject_staff_assignments`
+--
+
+LOCK TABLES `subject_staff_assignments` WRITE;
+/*!40000 ALTER TABLE `subject_staff_assignments` DISABLE KEYS */;
+INSERT INTO `subject_staff_assignments` (`assignment_id`, `subject_id`, `faculty_id`, `role`, `assigned_by`, `created_at`, `updated_at`) VALUES (16,2,1,'Subject Staff',1,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(17,3,1,'Subject Staff',1,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(18,6,1,'Subject Staff',1,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(19,2,2,'Co-Teacher',1,'2026-11-12 05:24:57','2026-11-12 05:24:57'),(20,1,1,'Subject Staff',1,'2026-11-12 05:24:57','2026-11-12 05:24:57');
+/*!40000 ALTER TABLE `subject_staff_assignments` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --
@@ -1019,7 +1494,7 @@ CREATE TABLE `subjects` (
   CONSTRAINT `fk_subj_dept` FOREIGN KEY (`owner_department_id`, `owner_school_id`) REFERENCES `departments` (`department_id`, `school_id`),
   CONSTRAINT `fk_subj_school` FOREIGN KEY (`owner_school_id`) REFERENCES `schools` (`school_id`),
   CONSTRAINT `ck_subject_owner` CHECK (((`owner_department_id` is null) or (`owner_school_id` is not null)))
-) ENGINE=InnoDB AUTO_INCREMENT=96 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=125 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1028,7 +1503,7 @@ CREATE TABLE `subjects` (
 
 LOCK TABLES `subjects` WRITE;
 /*!40000 ALTER TABLE `subjects` DISABLE KEYS */;
-INSERT INTO `subjects` (`subject_id`, `subject_code`, `name`, `credits`, `delivery_type`, `category_id`, `owner_school_id`, `owner_department_id`, `is_active`, `created_at`, `updated_at`) VALUES (1,'AIML101','Programming for Problem Solving',4.0,'THEORY',1,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(2,'AIML102','Mathematics for Artificial Intelligence',4.0,'THEORY',1,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(3,'AIML103','Data Structures and Algorithms',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(4,'AIML104','Database Management Systems',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-10-23 09:20:22'),(5,'AIML105','Object Oriented Programming',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(6,'AIML106','Programming Laboratory',1.0,'LAB',5,3,5,1,'2026-09-24 09:55:27','2026-10-07 08:37:57'),(7,'AIML201','Probability and Statistics',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(8,'AIML202','Machine Learning',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(9,'AIML203','Artificial Intelligence',4.0,'THEORY',2,3,5,0,'2026-09-24 09:55:27','2026-10-09 06:10:21'),(10,'AIML204','Operating Systems',4.0,'THEORY',2,3,5,0,'2026-09-24 09:55:27','2026-10-09 06:10:10'),(11,'AIML205','Computer Networks',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(12,'AIML206','Machine Learning Laboratory',1.0,'LAB',5,3,5,1,'2026-09-24 09:55:27','2026-10-09 04:39:22'),(71,'23BTAM111','Fundamentals of computing',3.0,'THEORY',NULL,3,5,1,'2026-10-23 04:59:16','2026-10-23 06:22:04'),(93,'BLLB2112','Indian Constitution',3.0,'THEORY',NULL,6,10,1,'2026-10-28 06:37:20','2026-10-28 06:37:20');
+INSERT INTO `subjects` (`subject_id`, `subject_code`, `name`, `credits`, `delivery_type`, `category_id`, `owner_school_id`, `owner_department_id`, `is_active`, `created_at`, `updated_at`) VALUES (1,'AIML101','Programming for Problem Solving',4.0,'THEORY',1,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(2,'AIML102','Mathematics for Artificial Intelligence',4.0,'THEORY',1,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(3,'AIML103','Data Structures and Algorithms',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(4,'AIML104','Database Management Systems',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-10-23 09:20:22'),(5,'AIML105','Object Oriented Programming',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(6,'AIML106','Programming Laboratory',1.0,'LAB',5,3,5,1,'2026-09-24 09:55:27','2026-10-07 08:37:57'),(7,'AIML201','Probability and Statistics',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(8,'AIML202','Machine Learning',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(9,'AIML203','Artificial Intelligence',4.0,'THEORY',2,3,5,0,'2026-09-24 09:55:27','2026-11-10 04:26:20'),(10,'AIML204','Operating Systems',4.0,'THEORY',2,3,5,0,'2026-09-24 09:55:27','2026-10-09 06:10:10'),(11,'AIML205','Computer Networks',4.0,'THEORY',2,3,5,1,'2026-09-24 09:55:27','2026-09-24 09:55:27'),(12,'AIML206','Machine Learning Laboratory',1.0,'LAB',5,3,5,1,'2026-09-24 09:55:27','2026-10-09 04:39:22'),(71,'23BTAM111','Fundamentals of computing',3.0,'THEORY',NULL,3,5,1,'2026-10-23 04:59:16','2026-10-23 06:22:04'),(93,'BLLB2112','Indian Constitution',3.0,'THEORY',NULL,6,10,1,'2026-10-28 06:37:20','2026-10-28 06:37:20');
 /*!40000 ALTER TABLE `subjects` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1092,7 +1567,7 @@ CREATE TABLE `timetable_slots` (
   CONSTRAINT `ck_slot_dow` CHECK ((`day_of_week` between 1 and 7)),
   CONSTRAINT `ck_slot_eff` CHECK (((`effective_to` is null) or (`effective_to` >= `effective_from`))),
   CONSTRAINT `ck_slot_time` CHECK ((`end_time` > `start_time`))
-) ENGINE=InnoDB AUTO_INCREMENT=164 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=220 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1101,7 +1576,7 @@ CREATE TABLE `timetable_slots` (
 
 LOCK TABLES `timetable_slots` WRITE;
 /*!40000 ALTER TABLE `timetable_slots` DISABLE KEYS */;
-INSERT INTO `timetable_slots` (`slot_id`, `section_id`, `faculty_id`, `classroom_id`, `day_of_week`, `start_time`, `end_time`, `effective_from`, `effective_to`, `is_active`, `created_at`, `updated_at`) VALUES (1,1,1,1,1,'09:00:00','10:00:00','2026-06-01',NULL,0,'2026-09-24 15:10:52','2026-10-23 08:20:47'),(2,2,2,2,2,'10:00:00','11:00:00','2026-06-01',NULL,1,'2026-09-24 15:10:52','2026-10-21 04:38:41'),(3,3,1,4,3,'14:00:00','16:00:00','2026-06-01',NULL,1,'2026-09-24 15:10:52','2026-10-21 04:38:41'),(112,2,1,5,3,'11:00:00','12:00:00','2026-10-21',NULL,1,'2026-10-21 06:32:30','2026-10-21 06:32:30'),(159,193,4,1,1,'09:00:00','10:00:00','2026-05-31','2026-11-20',0,'2026-10-28 06:40:18','2026-10-28 06:40:18');
+INSERT INTO `timetable_slots` (`slot_id`, `section_id`, `faculty_id`, `classroom_id`, `day_of_week`, `start_time`, `end_time`, `effective_from`, `effective_to`, `is_active`, `created_at`, `updated_at`) VALUES (1,1,1,1,1,'09:00:00','10:00:00','2026-06-01',NULL,0,'2026-09-24 15:10:52','2026-10-23 08:20:47'),(2,2,2,2,2,'10:00:00','11:00:00','2026-06-01',NULL,1,'2026-09-24 15:10:52','2026-10-21 04:38:41'),(3,3,1,4,3,'14:00:00','16:00:00','2026-06-01',NULL,1,'2026-09-24 15:10:52','2026-10-21 04:38:41'),(112,2,1,5,3,'11:00:00','12:00:00','2026-10-21',NULL,1,'2026-10-21 06:32:30','2026-10-21 06:32:30'),(159,193,111,1,6,'09:00:00','10:00:00','2026-05-04','2026-11-20',0,'2026-10-28 06:40:18','2026-11-02 05:36:47');
 /*!40000 ALTER TABLE `timetable_slots` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1138,7 +1613,7 @@ CREATE TABLE `users` (
   UNIQUE KEY `uq_users_student_id` (`student_id`),
   CONSTRAINT `fk_users_faculty` FOREIGN KEY (`faculty_id`) REFERENCES `faculty` (`faculty_id`),
   CONSTRAINT `fk_users_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=85 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=211 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1147,7 +1622,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` (`user_id`, `username`, `full_name`, `gender`, `date_of_birth`, `blood_group`, `joining_year`, `employee_id`, `email`, `password_hash`, `role`, `faculty_id`, `student_id`, `is_active`, `failed_login_count`, `last_login_at`, `created_at`, `updated_at`) VALUES (1,'admin','System Administrator','male','1985-06-15','O+',2020,'ADM001','admin@joyuniversity.edu.in','$2b$10$S815ejeq69wCY3jPdUkuYOLN43GhaIRZoXLVoHBCVojIwY2ny9Nw6','ADMIN',NULL,NULL,1,0,NULL,'2026-09-24 10:27:54','2026-10-28 06:55:58'),(3,'J26AIM001','Uppara Vinod','male','2004-05-10','O+',2023,NULL,'btam26014@joyuniversity.edu.in','$2b$10$f7GOX3vL0z63ukqt.HmsReuz/Y/O6l.0aqVwqZYU070zEIuHqC6Gq','STUDENT',NULL,1,1,0,NULL,'2026-09-28 04:23:38','2026-10-27 06:16:00'),(4,'FAC001','Rajesh Kumar','male','1980-08-22','B+',2021,'FAC001','rajesh.kumar@joyuniversity.edu.in','$2b$10$UfMVaEoXVlZC.cjgS5xeNO1gpRGCdB6Uwc7/gMnseiAxuHsO4Rxre','FACULTY',1,NULL,1,0,NULL,'2026-09-29 03:53:57','2026-10-27 05:03:06'),(5,'2023BTAM014','Uppara Vinod','male','2005-07-03','A+',2023,NULL,'btam23014@joyuniversity.edu.in','$2b$10$FtjTMiwBq8IByIGXuNxGVukKZrOJABaSaGxdrmyD.rlWNc1JnTzke','STUDENT',NULL,142,1,0,NULL,'2026-10-28 04:05:35','2026-10-28 04:19:59');
+INSERT INTO `users` (`user_id`, `username`, `full_name`, `gender`, `date_of_birth`, `blood_group`, `joining_year`, `employee_id`, `email`, `password_hash`, `role`, `faculty_id`, `student_id`, `is_active`, `failed_login_count`, `last_login_at`, `created_at`, `updated_at`) VALUES (1,'admin','System Administrator','male','1980-07-30','A-',2020,'ADM001','admin@joyuniversity.edu.in','$2b$10$S815ejeq69wCY3jPdUkuYOLN43GhaIRZoXLVoHBCVojIwY2ny9Nw6','ADMIN',NULL,NULL,1,0,NULL,'2026-09-24 10:27:54','2026-11-12 05:07:42'),(3,'J26AIM001','Uppara Vinod','male','2004-05-10','O+',2023,NULL,'btam26014@joyuniversity.edu.in','$2b$10$f7GOX3vL0z63ukqt.HmsReuz/Y/O6l.0aqVwqZYU070zEIuHqC6Gq','STUDENT',NULL,1,1,0,NULL,'2026-09-28 04:23:38','2026-10-27 06:16:00'),(4,'FAC001','Rajesh Kumar','male','1980-08-22','B+',2021,'FAC001','rajesh.kumar@joyuniversity.edu.in','$2b$10$UfMVaEoXVlZC.cjgS5xeNO1gpRGCdB6Uwc7/gMnseiAxuHsO4Rxre','FACULTY',1,NULL,1,0,NULL,'2026-09-29 03:53:57','2026-10-27 05:03:06'),(5,'2023BTAM014','UPPARA VINOD','male','2005-07-03','A+',2023,NULL,'btam23014@joyuniversity.edu.in','$2b$10$FtjTMiwBq8IByIGXuNxGVukKZrOJABaSaGxdrmyD.rlWNc1JnTzke','STUDENT',NULL,142,1,0,NULL,'2026-10-28 04:05:35','2026-10-29 04:07:38'),(93,'ACAD_REG_1793178351851','Full Academic Student Renamed','male','2005-04-12','O+',NULL,NULL,'acad_test_1793178351851@joyuniversity.edu.in','$2b$10$WYytn1lPKXXL3IV3C63/M.eZKNBXgKrWrd2G2yqkQZ5M9fzHkpm0i','STUDENT',NULL,154,0,0,NULL,'2026-10-28 09:05:51','2026-10-28 09:05:52'),(96,'ACAD_REG_1793178355800','Full Academic Student Renamed','male','2005-04-12','O+',NULL,NULL,'acad_test_1793178355800@joyuniversity.edu.in','$2b$10$X41XTNZQ1qE4VEs6PSI2B.GGqFkrFPPlULdy2e.9HJaF.D0o6m53K','STUDENT',NULL,156,0,0,NULL,'2026-10-28 09:05:55','2026-10-28 09:05:56'),(105,'FAC_QA_1793183158776','Dr. QA Automated Faculty Updated test',NULL,NULL,'A-',NULL,'FAC_QA_1793183158776','qa_1793183158776@joyuniversity.edu.in','$2b$10$tus09h/DBYD8a02bRPdXt.yZybaK8qUUq876UTlTiVYXHWh4EQNi.','FACULTY',105,NULL,1,0,NULL,'2026-10-28 10:25:58','2026-11-02 05:27:49'),(121,'FAC0001','Dr. Narasimha Uppara','male','1980-07-30','A+',2023,'FAC0001','narasimha@joyuniversity.edu.in','$2b$10$Fw3gIYePS9CSoskpCdCRnultUWodcL7drvb0imGo2eBwA2NLuu5jm','FACULTY',111,NULL,1,0,NULL,'2026-10-29 04:03:42','2026-10-29 04:07:01'),(203,'JU26AIML002','Student Two',NULL,NULL,NULL,NULL,NULL,'student2@joyuniversity.edu.in','$2b$10$3Ivm2jkQU8wuFpZ5EUC7/.XbZ.1m.soG8qXcsVj9aqupzqOsB2.FO','STUDENT',NULL,2,1,0,NULL,'2026-11-12 05:06:08','2026-11-12 05:06:08'),(204,'JU26AIML003','Student Three',NULL,NULL,NULL,NULL,NULL,'student3@joyuniversity.edu.in','$2b$10$3Ivm2jkQU8wuFpZ5EUC7/.XbZ.1m.soG8qXcsVj9aqupzqOsB2.FO','STUDENT',NULL,3,1,0,NULL,'2026-11-12 05:06:08','2026-11-12 05:06:08'),(205,'FAC002','Dr. Priya Sharma',NULL,NULL,NULL,NULL,NULL,'priya.sharma@joyuniversity.edu.in','$2b$10$WWfIGUQUFwEAsSiJPxbHA.LMWEFLjvvTf0zB7HordEibaQqoqSjvC','FACULTY',2,NULL,1,0,NULL,'2026-11-12 05:06:08','2026-11-12 05:06:08');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1164,4 +1639,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-28 13:56:44
+-- Dump completed on 2026-11-12 10:54:58

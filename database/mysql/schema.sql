@@ -652,4 +652,288 @@ CREATE TABLE IF NOT EXISTS `attendance_corrections` (
   CONSTRAINT `ck_corr_change` CHECK ((`previous_status` <> `new_status`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ==============================================================================
+-- Academic Module Tables (Migration 007)
+-- ==============================================================================
+
+-- ------------------------------------------------------------------------------
+-- Table: subject_staff_assignments
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `subject_staff_assignments` (
+  `assignment_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `subject_id` int unsigned NOT NULL,
+  `faculty_id` int unsigned NOT NULL,
+  `role` enum('Subject Staff','Co-Teacher','Lab Assistant') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Subject Staff',
+  `assigned_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`assignment_id`),
+  UNIQUE KEY `uq_subject_faculty_role` (`subject_id`,`faculty_id`,`role`),
+  KEY `fk_ssa_faculty` (`faculty_id`),
+  KEY `fk_ssa_assigned_by` (`assigned_by`),
+  CONSTRAINT `fk_ssa_assigned_by` FOREIGN KEY (`assigned_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ssa_faculty` FOREIGN KEY (`faculty_id`) REFERENCES `faculty` (`faculty_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ssa_subject` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`subject_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_topics
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_topics` (
+  `topic_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `subject_id` int unsigned NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `position` int unsigned NOT NULL DEFAULT '1',
+  `quiz_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`topic_id`),
+  KEY `idx_topics_subject_pos` (`subject_id`,`position`),
+  KEY `fk_topic_creator` (`created_by`),
+  CONSTRAINT `fk_topic_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_topic_subject` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`subject_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_materials
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_materials` (
+  `material_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `topic_id` int unsigned NOT NULL,
+  `type` enum('PDF','Video','Slide','Link','Notes') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `file_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `version` int unsigned NOT NULL DEFAULT '1',
+  `status` enum('Draft','Published') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Draft',
+  `required_flag` tinyint(1) NOT NULL DEFAULT '0',
+  `position` int unsigned NOT NULL DEFAULT '1',
+  `mime_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `file_size` bigint unsigned DEFAULT NULL,
+  `virus_scan_status` enum('PENDING','CLEAN','INFECTED','SKIPPED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CLEAN',
+  `extracted_text_ref` longtext COLLATE utf8mb4_unicode_ci,
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`material_id`),
+  KEY `idx_materials_topic_status` (`topic_id`,`status`),
+  KEY `fk_material_creator` (`created_by`),
+  CONSTRAINT `fk_material_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_material_topic` FOREIGN KEY (`topic_id`) REFERENCES `academic_topics` (`topic_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_material_versions
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_material_versions` (
+  `version_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `material_id` int unsigned NOT NULL,
+  `version` int unsigned NOT NULL,
+  `file_ref` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `mime_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `file_size` bigint unsigned DEFAULT NULL,
+  `change_summary` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`version_id`),
+  UNIQUE KEY `uq_mat_version` (`material_id`,`version`),
+  KEY `fk_matver_creator` (`created_by`),
+  CONSTRAINT `fk_matver_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_matver_material` FOREIGN KEY (`material_id`) REFERENCES `academic_materials` (`material_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_material_progress
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_material_progress` (
+  `progress_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `person_id` int unsigned NOT NULL,
+  `material_id` int unsigned NOT NULL,
+  `percent` int unsigned NOT NULL DEFAULT '0',
+  `status` enum('NOT_STARTED','IN_PROGRESS','COMPLETED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NOT_STARTED',
+  `completed_at` datetime DEFAULT NULL,
+  `last_accessed_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`progress_id`),
+  UNIQUE KEY `uq_progress_person_mat` (`person_id`,`material_id`),
+  KEY `idx_progress_mat` (`material_id`),
+  CONSTRAINT `fk_progress_material` FOREIGN KEY (`material_id`) REFERENCES `academic_materials` (`material_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_progress_person` FOREIGN KEY (`person_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_questions
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_questions` (
+  `question_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `topic_id` int unsigned NOT NULL,
+  `type` enum('MCQ','TrueFalse','ShortAnswer') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MCQ',
+  `text` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `options` json DEFAULT NULL,
+  `answer` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `explanation` text COLLATE utf8mb4_unicode_ci,
+  `marks` decimal(5,2) NOT NULL DEFAULT '1.00',
+  `difficulty` enum('Easy','Medium','Hard') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Medium',
+  `source_ref` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `origin` enum('Manual','ML') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Manual',
+  `approved_by` int unsigned DEFAULT NULL,
+  `status` enum('Draft','Approved','Archived') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Approved',
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`question_id`),
+  KEY `idx_questions_topic_status` (`topic_id`,`status`),
+  KEY `fk_quest_approver` (`approved_by`),
+  KEY `fk_quest_creator` (`created_by`),
+  CONSTRAINT `fk_quest_approver` FOREIGN KEY (`approved_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_quest_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_quest_topic` FOREIGN KEY (`topic_id`) REFERENCES `academic_topics` (`topic_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_quizzes
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_quizzes` (
+  `quiz_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `topic_id` int unsigned NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `version` int unsigned NOT NULL DEFAULT '1',
+  `time_limit` int unsigned NOT NULL DEFAULT '30',
+  `pass_mark` decimal(5,2) NOT NULL DEFAULT '50.00',
+  `max_attempts` int unsigned NOT NULL DEFAULT '3',
+  `open_at` datetime DEFAULT NULL,
+  `close_at` datetime DEFAULT NULL,
+  `status` enum('Draft','Published','Archived') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Draft',
+  `shuffle_questions` tinyint(1) NOT NULL DEFAULT '1',
+  `shuffle_options` tinyint(1) NOT NULL DEFAULT '1',
+  `show_explanation` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by` int unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`quiz_id`),
+  UNIQUE KEY `topic_id` (`topic_id`),
+  KEY `fk_quiz_creator` (`created_by`),
+  CONSTRAINT `fk_quiz_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_quiz_topic` FOREIGN KEY (`topic_id`) REFERENCES `academic_topics` (`topic_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_attempts
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_attempts` (
+  `attempt_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `quiz_id` int unsigned NOT NULL,
+  `person_id` int unsigned NOT NULL,
+  `attempt_number` int unsigned NOT NULL DEFAULT '1',
+  `started_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `expires_at` datetime DEFAULT NULL,
+  `submitted_at` datetime DEFAULT NULL,
+  `score` decimal(5,2) DEFAULT NULL,
+  `max_score` decimal(5,2) DEFAULT NULL,
+  `percentage` decimal(5,2) DEFAULT NULL,
+  `result` enum('PASSED','FAILED','PENDING') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `status` enum('IN_PROGRESS','SUBMITTED','TIMED_OUT','CANCELLED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'IN_PROGRESS',
+  `question_set` json NOT NULL,
+  `idempotency_key` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`attempt_id`),
+  UNIQUE KEY `idempotency_key` (`idempotency_key`),
+  KEY `idx_attempt_quiz_person` (`quiz_id`,`person_id`,`attempt_number`),
+  KEY `fk_attempt_person` (`person_id`),
+  CONSTRAINT `fk_attempt_person` FOREIGN KEY (`person_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_attempt_quiz` FOREIGN KEY (`quiz_id`) REFERENCES `academic_quizzes` (`quiz_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_attempt_answers
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_attempt_answers` (
+  `answer_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `attempt_id` int unsigned NOT NULL,
+  `question_id` int unsigned NOT NULL,
+  `answer` text COLLATE utf8mb4_unicode_ci,
+  `is_correct` tinyint(1) DEFAULT NULL,
+  `marks_awarded` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `answered_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`answer_id`),
+  UNIQUE KEY `uq_attempt_question` (`attempt_id`,`question_id`),
+  KEY `fk_ans_question` (`question_id`),
+  CONSTRAINT `fk_ans_attempt` FOREIGN KEY (`attempt_id`) REFERENCES `academic_attempts` (`attempt_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ans_question` FOREIGN KEY (`question_id`) REFERENCES `academic_questions` (`question_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_score_corrections
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_score_corrections` (
+  `correction_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `attempt_id` int unsigned NOT NULL,
+  `previous_score` decimal(5,2) NOT NULL,
+  `new_score` decimal(5,2) NOT NULL,
+  `reason_code` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `justification` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `corrected_by` int unsigned NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`correction_id`),
+  KEY `fk_scorecorr_attempt` (`attempt_id`),
+  KEY `fk_scorecorr_user` (`corrected_by`),
+  CONSTRAINT `fk_scorecorr_attempt` FOREIGN KEY (`attempt_id`) REFERENCES `academic_attempts` (`attempt_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_scorecorr_user` FOREIGN KEY (`corrected_by`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_permission_matrix
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_permission_matrix` (
+  `policy_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `action` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `allowed_roles` json NOT NULL,
+  `requires_subject_staff` tinyint(1) NOT NULL DEFAULT '1',
+  `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`policy_id`),
+  UNIQUE KEY `action` (`action`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_audit_ledger
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_audit_ledger` (
+  `ledger_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `person_id` int unsigned NOT NULL,
+  `location_id` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `timestamp` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `event_type` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payload` json DEFAULT NULL,
+  `reason_code` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`ledger_id`),
+  KEY `idx_ledger_person` (`person_id`),
+  KEY `idx_ledger_event` (`event_type`),
+  KEY `idx_ledger_timestamp` (`timestamp`),
+  CONSTRAINT `fk_ledger_person` FOREIGN KEY (`person_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Table: academic_ml_jobs
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `academic_ml_jobs` (
+  `job_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `topic_id` int unsigned NOT NULL,
+  `material_id` int unsigned DEFAULT NULL,
+  `job_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'QUESTION_GENERATION',
+  `status` enum('PENDING','PROCESSING','COMPLETED','FAILED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `requested_by` int unsigned NOT NULL,
+  `result_summary` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`job_id`),
+  KEY `fk_mljob_topic` (`topic_id`),
+  KEY `fk_mljob_material` (`material_id`),
+  KEY `fk_mljob_user` (`requested_by`),
+  CONSTRAINT `fk_mljob_material` FOREIGN KEY (`material_id`) REFERENCES `academic_materials` (`material_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_mljob_topic` FOREIGN KEY (`topic_id`) REFERENCES `academic_topics` (`topic_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_mljob_user` FOREIGN KEY (`requested_by`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

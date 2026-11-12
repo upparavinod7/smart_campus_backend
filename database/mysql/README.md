@@ -19,16 +19,19 @@ This document describes the relational database structure, schema migration life
 ```text
 database/mysql/
 ├── 00_create_database.sql          # Creates smart_campus database with utf8mb4 encoding
-├── schema.sql                     # Full relational schema (31 tables with FKs and indexes)
+├── schema.sql                     # Full relational schema (44 tables with FKs and indexes)
 ├── data_dump.sql                  # Complete database snapshot (schema + all current live records)
 ├── data_insert_queries.sql        # Standalone INSERT IGNORE statements for team sharing without dropping tables
 ├── migrations/                    # Ordered, deterministic incremental migrations
 │   ├── 001_create_revoked_tokens.sql
 │   ├── 002_add_batch_id_to_sections.sql
 │   ├── 003_allow_multiple_sessions_per_date.sql
-│   └── 004_add_full_name_to_users.sql
+│   ├── 004_add_full_name_to_users.sql
+│   ├── 005_add_profile_demographics.sql
+│   ├── 006_remove_demographic_defaults.sql
+│   └── 007_create_academic_module.sql
 ├── seeds/                         # Environment seeds
-│   ├── reference_data.sql         # Institutional reference catalogs (Degrees, Schools, Terms)
+│   ├── reference_data.sql         # Institutional reference catalogs & academic permission matrix
 │   └── demo_data.sql              # Dev/QA test fixtures (Admin, Faculty, Student demo accounts)
 └── README.md                      # This database guide
 ```
@@ -39,7 +42,7 @@ database/mysql/
 
 ### A. Initializing a Brand New Database (Fresh Install)
 
-To create the database and all 31 relational tables from scratch:
+To create the database and all 44 relational tables from scratch:
 
 ```bash
 # Using npm script:
@@ -98,13 +101,22 @@ Populates sample campus infrastructure, course offerings, sections, batches, and
 npm run db:seed:demo
 ```
 
+To populate dummy data for the **Academic Module (Topics, Study Materials, Question Bank, Quizzes, Progress & Attempts)**:
+
+```bash
+npm run db:seed:academic
+
+# Reset and re-seed academic dummy data:
+npm run db:seed:academic:reset
+```
+
 > [!WARNING]
-> Never run `npm run db:seed:demo` in production. The script will automatically abort if `NODE_ENV=production`.
+> Never run `npm run db:seed:demo` or `npm run db:seed:academic` in production. Both scripts automatically abort if `NODE_ENV=production`.
 
 #### Pre-configured Demo Accounts:
 - **System Administrator:** `admin` / `Admin@123` (`ADMIN` role)
-- **Faculty:** `FAC001` / `Faculty@123` (`FACULTY` role)
-- **Student:** `J26AIM001` / `Student@123` (`STUDENT` role)
+- **Faculty:** `FAC001` / `Faculty@123` (`FACULTY` role), `FAC002` / `Faculty@123` (Co-Teacher)
+- **Students:** `J26AIM001` / `Student@123`, `JU26AIML002` / `Student@123`, `JU26AIML003` / `Student@123` (`STUDENT` role)
 
 ---
 

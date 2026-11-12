@@ -112,4 +112,19 @@ INSERT IGNORE INTO system_settings (setting_key, setting_value, value_type, desc
   ('SESSION_GRACE_PERIOD_MINS', '10', 'INT', 'Grace period in minutes before marking late or absent'),
   ('MIN_ATTENDANCE_PERCENTAGE', '75.0', 'DECIMAL', 'Minimum required attendance percentage for examination eligibility');
 
+-- ------------------------------------------------------------------------------
+-- 9. Academic Module Permission Matrix (AC-POL-01)
+-- ------------------------------------------------------------------------------
+INSERT IGNORE INTO academic_permission_matrix (action, allowed_roles, requires_subject_staff, description) VALUES
+  ('MANAGE_TOPICS', '["ADMIN", "FACULTY"]', 1, 'Create, edit, reorder topics for a subject'),
+  ('UPLOAD_MATERIALS', '["ADMIN", "FACULTY"]', 1, 'Upload or create study materials'),
+  ('PUBLISH_MATERIALS', '["ADMIN", "FACULTY"]', 1, 'Publish or unpublish materials'),
+  ('AUTHOR_QUESTIONS', '["ADMIN", "FACULTY"]', 1, 'Manage question bank items'),
+  ('CONFIGURE_QUIZ', '["ADMIN", "FACULTY"]', 1, 'Create and configure topic quizzes'),
+  ('PREVIEW_QUIZ', '["ADMIN", "FACULTY"]', 1, 'Preview quiz questions and layout'),
+  ('ATTEMPT_QUIZ', '["STUDENT"]', 0, 'Start and submit quiz attempts'),
+  ('VIEW_ANALYTICS', '["ADMIN", "FACULTY"]', 1, 'View student progress and quiz performance metrics'),
+  ('CORRECT_SCORE', '["ADMIN", "FACULTY"]', 1, 'Manually correct or override attempt scores'),
+  ('MANAGE_STAFF', '["ADMIN", "FACULTY"]', 0, 'Assign faculty to subjects');
+
 SET FOREIGN_KEY_CHECKS = 1;
