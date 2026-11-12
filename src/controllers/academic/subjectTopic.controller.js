@@ -149,7 +149,10 @@ async function assignStaff(req, res) {
     const [result] = await pool.query(
       `INSERT INTO subject_staff_assignments (subject_id, faculty_id, role, assigned_by)
        VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE role = VALUES(role), updated_at = NOW()`,
+       ON DUPLICATE KEY UPDATE
+         assignment_id = LAST_INSERT_ID(assignment_id),
+         role = VALUES(role),
+         updated_at = NOW()`,
       [subjectId, faculty_id, role, req.user.user_id],
     );
 
