@@ -91,7 +91,7 @@ npm run db:seed:ref
 When deploying new features with database schema updates:
 
 ```bash
-npm run db:migrate
+C
 ```
 
 - Inspects the `schema_migrations` table to determine pending files in `database/mysql/migrations/`.

@@ -19,17 +19,21 @@ const login = async (req, res) => {
 
     const [users] = await pool.query(
       `SELECT
-      user_id,
-      username,
-      full_name,
-      email,
-      password_hash,
-      role,
-      faculty_id,
-      student_id,
-      is_active
-      FROM users
-      WHERE username = ?
+      u.user_id,
+      u.username,
+      u.full_name,
+      u.email,
+      u.password_hash,
+      u.role,
+      u.faculty_id,
+      u.student_id,
+      u.is_active,
+      CASE WHEN des.name IN ('Head of Department', 'HOD', 'Department Head') THEN 1 ELSE 0 END AS is_hod,
+      f.department_id AS faculty_department_id
+      FROM users u
+      LEFT JOIN faculty f ON u.faculty_id = f.faculty_id
+      LEFT JOIN designations des ON f.designation_id = des.designation_id
+      WHERE u.username = ?
       LIMIT 1`,
       [username],
     );
@@ -68,6 +72,8 @@ const login = async (req, res) => {
         role: user.role,
         faculty_id: user.faculty_id,
         student_id: user.student_id,
+        is_hod: user.is_hod === 1,
+        faculty_department_id: user.faculty_department_id || null,
       },
       process.env.JWT_SECRET,
       {
@@ -86,6 +92,8 @@ const login = async (req, res) => {
         role: user.role,
         faculty_id: user.faculty_id,
         student_id: user.student_id,
+        is_hod: user.is_hod === 1,
+        faculty_department_id: user.faculty_department_id || null,
       },
       token,
     });
@@ -207,21 +215,25 @@ const getMe = async (req, res) => {
   try {
     const [users] = await pool.query(
       `SELECT
-        user_id,
-        username,
-        full_name,
-        gender,
-        date_of_birth,
-        blood_group,
-        joining_year,
-        employee_id,
-        email,
-        role,
-        faculty_id,
-        student_id,
-        is_active
-      FROM users
-      WHERE user_id = ?
+        u.user_id,
+        u.username,
+        u.full_name,
+        u.gender,
+        u.date_of_birth,
+        u.blood_group,
+        u.joining_year,
+        u.employee_id,
+        u.email,
+        u.role,
+        u.faculty_id,
+        u.student_id,
+        u.is_active,
+        CASE WHEN des.name IN ('Head of Department', 'HOD', 'Department Head') THEN 1 ELSE 0 END AS is_hod,
+        f.department_id AS faculty_department_id
+      FROM users u
+      LEFT JOIN faculty f ON u.faculty_id = f.faculty_id
+      LEFT JOIN designations des ON f.designation_id = des.designation_id
+      WHERE u.user_id = ?
       LIMIT 1`,
       [req.user.user_id],
     );
@@ -252,6 +264,8 @@ const getMe = async (req, res) => {
         role: user.role,
         faculty_id: user.faculty_id,
         student_id: user.student_id,
+        is_hod: user.is_hod === 1,
+        faculty_department_id: user.faculty_department_id || null,
       },
     });
   } catch (error) {
@@ -393,7 +407,9 @@ const getProfile = async (req, res) => {
           f.in_charge_class,
           f.phone,
           f.email,
+          f.department_id,
           des.name AS designation,
+          CASE WHEN des.name IN ('Head of Department', 'HOD', 'Department Head') THEN 1 ELSE 0 END AS is_hod,
           d.name AS department_name,
           d.code AS department_code,
           sch.name AS school_name
@@ -426,7 +442,10 @@ const getProfile = async (req, res) => {
           department_name: f.department_name,
           department: f.department_name,
           department_code: f.department_code,
+          department_id: f.department_id,
           school_name: f.school_name,
+          is_hod: f.is_hod === 1 || f.is_hod === true,
+          faculty_department_id: f.department_id || null,
         };
       }
     }

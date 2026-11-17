@@ -76,9 +76,10 @@ async function resolveSubjectId(req) {
 }
 
 /**
- * Checks whether a faculty member is assigned, coordinating, teaching, or in the department of a subject
+ * Checks whether a faculty member is assigned, coordinating, teaching, or is the HOD for a subject
  */
-async function isFacultyAuthorizedForSubject(facultyId, subjectId) {
+async function isFacultyAuthorizedForSubject(user, subjectId) {
+  const facultyId = typeof user === "object" ? user.faculty_id : user;
   if (!facultyId || !subjectId) return false;
 
   // 1. Direct assignment in subject_staff_assignments
@@ -107,16 +108,14 @@ async function isFacultyAuthorizedForSubject(facultyId, subjectId) {
   );
   if (slotRows.length > 0) return true;
 
-  // 4. Department HOD / Department peer assignment
-  const [deptRows] = await pool.query(
-    `SELECT 1 
-     FROM subjects sub
-     JOIN faculty f ON sub.owner_department_id = f.department_id
-     WHERE sub.subject_id = ? AND f.faculty_id = ? AND f.is_active = 1
-     LIMIT 1`,
-    [subjectId, facultyId],
-  );
-  if (deptRows.length > 0) return true;
+  // 4. Department HOD oversight: Can oversee all subjects in their department
+  if (typeof user === "object" && user.is_hod && user.faculty_department_id) {
+    const [deptRows] = await pool.query(
+      "SELECT 1 FROM subjects WHERE subject_id = ? AND owner_department_id = ? LIMIT 1",
+      [subjectId, user.faculty_department_id],
+    );
+    if (deptRows.length > 0) return true;
+  }
 
   return false;
 }
@@ -189,7 +188,7 @@ function requireAcademicPolicy(action) {
         if (subjectId) {
           req.academicSubjectId = subjectId;
           if (user.role === "FACULTY") {
-            const authorized = await isFacultyAuthorizedForSubject(user.faculty_id, subjectId);
+            const authorized = await isFacultyAuthorizedForSubject(user, subjectId);
             if (!authorized) {
               return res.status(403).json({
                 success: false,

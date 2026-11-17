@@ -31,15 +31,20 @@ async function getSubjects(req, res) {
       conditions.push("e.student_id = ? AND e.status = 'REGISTERED'");
       params.push(user.student_id);
     } else if (user.role === "FACULTY") {
-      sql += `
-        LEFT JOIN subject_staff_assignments ssa ON s.subject_id = ssa.subject_id AND ssa.faculty_id = ?
-        LEFT JOIN course_offerings co_f ON s.subject_id = co_f.subject_id AND co_f.coordinator_faculty_id = ?
-        LEFT JOIN sections sec_f ON co_f.offering_id = sec_f.offering_id
-        LEFT JOIN timetable_slots ts_f ON sec_f.section_id = ts_f.section_id AND ts_f.faculty_id = ? AND ts_f.is_active = 1
-        LEFT JOIN faculty f_dept ON s.owner_department_id = f_dept.department_id AND f_dept.faculty_id = ?
-      `;
-      params.push(user.faculty_id, user.faculty_id, user.faculty_id, user.faculty_id);
-      conditions.push("(ssa.assignment_id IS NOT NULL OR co_f.offering_id IS NOT NULL OR ts_f.slot_id IS NOT NULL OR f_dept.faculty_id IS NOT NULL)");
+      // HOD sees all subjects in their department
+      if (user.is_hod && user.faculty_department_id) {
+        conditions.push("s.owner_department_id = ?");
+        params.push(user.faculty_department_id);
+      } else {
+        sql += `
+          LEFT JOIN subject_staff_assignments ssa ON s.subject_id = ssa.subject_id AND ssa.faculty_id = ?
+          LEFT JOIN course_offerings co_f ON s.subject_id = co_f.subject_id AND co_f.coordinator_faculty_id = ?
+          LEFT JOIN sections sec_f ON co_f.offering_id = sec_f.offering_id
+          LEFT JOIN timetable_slots ts_f ON sec_f.section_id = ts_f.section_id AND ts_f.faculty_id = ? AND ts_f.is_active = 1
+        `;
+        params.push(user.faculty_id, user.faculty_id, user.faculty_id);
+        conditions.push("(ssa.assignment_id IS NOT NULL OR co_f.offering_id IS NOT NULL OR ts_f.slot_id IS NOT NULL)");
+      }
     }
 
     if (search) {

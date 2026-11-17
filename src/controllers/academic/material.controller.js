@@ -31,6 +31,10 @@ async function getTopicMaterials(req, res) {
 
     const [materials] = await pool.query(sql, params);
 
+    materials.forEach((m) => {
+      m.content = m.extracted_text_ref || m.description || "";
+    });
+
     // If student, attach student's progress
     if (user.role === "STUDENT") {
       const [progress] = await pool.query(
@@ -232,6 +236,7 @@ async function getMaterialById(req, res) {
     }
 
     const material = rows[0];
+    material.content = material.extracted_text_ref || material.description || "";
 
     // If student, check if material is published
     if (user.role === "STUDENT" && material.status !== "Published") {
@@ -472,12 +477,14 @@ async function updateMaterialProgress(req, res) {
 
 /**
  * GET /api/v1/academic/materials/:id/download
+ * GET /api/v1/academic/materials/:id/view
  * Serves secure file stream from storage outside web root
  */
 async function downloadMaterial(req, res) {
   try {
     const materialId = req.params.id;
     const user = req.user;
+    const isInline = req.query.mode === "inline" || req.path.endsWith("/view");
 
     const [rows] = await pool.query(
       `SELECT m.*, t.subject_id 
@@ -493,32 +500,69 @@ async function downloadMaterial(req, res) {
 
     const mat = rows[0];
 
+    // If external link or video URL
+    if (mat.type === "Link" || (mat.file_ref && (mat.file_ref.startsWith("http://") || mat.file_ref.startsWith("https://")))) {
+      if (isInline) {
+        return res.redirect(mat.file_ref);
+      }
+      return res.status(200).json({ success: true, url: mat.file_ref, type: "Link" });
+    }
+
+    // If text notes with no physical file
+    if (mat.type === "Notes" || (!mat.file_ref && (mat.extracted_text_ref || mat.description))) {
+      const content = mat.extracted_text_ref || mat.description || "";
+      const filename = `${mat.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`;
+      res.setHeader("Content-Disposition", `${isInline ? "inline" : "attachment"}; filename="${filename}"`);
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      return res.send(content);
+    }
+
     if (!mat.file_ref) {
       return res.status(400).json({ success: false, message: "Material does not have an associated file" });
     }
 
-    const resolvedPath = path.resolve(mat.file_ref);
-    // Security check: ensure resolvedPath is within STORAGE_DIR
-    if (!resolvedPath.startsWith(STORAGE_DIR) && !fs.existsSync(resolvedPath)) {
-      return res.status(403).json({ success: false, message: "Access to the requested file path is restricted" });
+    // Resolve path: check exact path or relative inside STORAGE_DIR
+    let candidatePath = null;
+    if (fs.existsSync(mat.file_ref)) {
+      candidatePath = path.resolve(mat.file_ref);
+    } else {
+      const inStorage = path.join(STORAGE_DIR, path.basename(mat.file_ref));
+      if (fs.existsSync(inStorage)) {
+        candidatePath = inStorage;
+      }
     }
 
-    if (!fs.existsSync(resolvedPath)) {
+    if (!candidatePath || !fs.existsSync(candidatePath)) {
+      // If not on disk, fallback to sending description/content if available
+      if (mat.extracted_text_ref || mat.description) {
+        const content = mat.extracted_text_ref || mat.description || "";
+        const filename = `${mat.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`;
+        res.setHeader("Content-Disposition", `${isInline ? "inline" : "attachment"}; filename="${filename}"`);
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        return res.send(content);
+      }
       return res.status(404).json({ success: false, message: "Stored file not found on disk" });
+    }
+
+    // Security check: ensure file is inside STORAGE_DIR (case-insensitive for Windows)
+    const normTarget = path.normalize(candidatePath).toLowerCase();
+    const normStorage = path.normalize(STORAGE_DIR).toLowerCase();
+    if (!normTarget.startsWith(normStorage)) {
+      return res.status(403).json({ success: false, message: "Access to the requested file path is restricted" });
     }
 
     await logAcademicEvent({
       personId: user.user_id,
       locationId: `ACAD-MAT-${materialId}`,
-      eventType: "MATERIAL_DOWNLOAD",
-      payload: { materialId, file_name: path.basename(resolvedPath) },
+      eventType: isInline ? "MATERIAL_VIEW" : "MATERIAL_DOWNLOAD",
+      payload: { materialId, file_name: path.basename(candidatePath) },
     });
 
-    const filename = `${mat.title.replace(/[^a-zA-Z0-9_-]/g, "_")}${path.extname(resolvedPath)}`;
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    const filename = `${mat.title.replace(/[^a-zA-Z0-9_-]/g, "_")}${path.extname(candidatePath)}`;
+    res.setHeader("Content-Disposition", `${isInline ? "inline" : "attachment"}; filename="${filename}"`);
     res.setHeader("Content-Type", mat.mime_type || "application/octet-stream");
 
-    const stream = fs.createReadStream(resolvedPath);
+    const stream = fs.createReadStream(candidatePath);
     return stream.pipe(res);
   } catch (err) {
     console.error("[AcademicMaterial] downloadMaterial error:", err);

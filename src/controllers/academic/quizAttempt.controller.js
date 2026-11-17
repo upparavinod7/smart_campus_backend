@@ -37,6 +37,22 @@ async function startQuizAttempt(req, res) {
 
     const quiz = quizRows[0];
 
+    // Rule 0: Course in-charge faculty assigned check
+    const [staffCheck] = await pool.query(
+      "SELECT COUNT(*) AS count FROM subject_staff_assignments WHERE subject_id = ?",
+      [quiz.subject_id],
+    );
+    const [coordCheck] = await pool.query(
+      "SELECT COUNT(*) AS count FROM course_offerings WHERE subject_id = ? AND coordinator_faculty_id IS NOT NULL",
+      [quiz.subject_id],
+    );
+    if ((staffCheck[0]?.count || 0) === 0 && (coordCheck[0]?.count || 0) === 0) {
+      return res.status(403).json({
+        success: false,
+        message: "Course in charge faculty has not been assigned. Quiz is not currently available.",
+      });
+    }
+
     // Rule 1: Topic quiz enabled
     if (!quiz.quiz_enabled) {
       return res.status(403).json({
@@ -76,7 +92,7 @@ async function startQuizAttempt(req, res) {
        FROM academic_materials m
        LEFT JOIN academic_material_progress p ON m.material_id = p.material_id AND p.person_id = ?
        WHERE m.topic_id = ? AND m.status = 'Published' AND m.required_flag = 1
-         AND (p.completed_at IS NULL OR p.percent < 100)`,
+         AND (p.progress_id IS NULL OR (p.percent < 100 AND p.status != 'COMPLETED'))`,
       [user.user_id, quiz.topic_id],
     );
 
@@ -361,6 +377,75 @@ async function autosaveAnswers(req, res) {
 }
 
 /**
+ * GET /api/v1/academic/quizzes/:id/my-attempt
+ * Returns student's latest attempt for a quiz
+ */
+async function getMyQuizAttempt(req, res) {
+  try {
+    const quizId = req.params.id;
+    const user = req.user;
+
+    const [rows] = await pool.query(
+      `SELECT * FROM academic_attempts
+       WHERE quiz_id = ? AND person_id = ?
+       ORDER BY started_at DESC LIMIT 1`,
+      [quizId, user.user_id],
+    );
+
+    if (rows.length === 0) {
+      return res.status(200).json({ success: true, data: null });
+    }
+
+    return res.status(200).json({ success: true, data: rows[0] });
+  } catch (err) {
+    console.error("[AcademicAttempt] getMyQuizAttempt error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
+/**
+ * POST /api/v1/academic/attempts/:id/violation
+ * Immediate anti-cheat violation cancellation
+ */
+async function reportQuizViolation(req, res) {
+  try {
+    const attemptId = req.params.id;
+    const user = req.user;
+    const { reason = "Academic integrity violation detected" } = req.body;
+
+    const [existing] = await pool.query(
+      "SELECT * FROM academic_attempts WHERE attempt_id = ?",
+      [attemptId],
+    );
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, message: "Attempt not found" });
+    }
+
+    await pool.query(
+      `UPDATE academic_attempts
+       SET status = 'CANCELLED', score = 0, percentage = 0, result = 'FAILED', submitted_at = NOW()
+       WHERE attempt_id = ?`,
+      [attemptId],
+    );
+
+    await logAcademicEvent({
+      personId: user.user_id,
+      locationId: `ACAD-ATTEMPT-${attemptId}`,
+      eventType: "CHEATING_VIOLATION_DETECTED",
+      payload: { attemptId, reason },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Attempt cancelled due to academic integrity violation",
+    });
+  } catch (err) {
+    console.error("[AcademicAttempt] reportQuizViolation error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
+/**
  * POST /api/v1/academic/attempts/:id/submit
  * Finalize quiz attempt, score questions, and calculate pass/fail status idempotently
  */
@@ -561,5 +646,7 @@ module.exports = {
   getAttemptById,
   autosaveAnswers,
   submitQuizAttempt,
+  getMyQuizAttempt,
+  reportQuizViolation,
 };
 

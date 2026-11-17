@@ -36,6 +36,53 @@ async function getTopicQuiz(req, res) {
     quiz.approved_questions = qStats[0].approved_questions;
     quiz.total_marks = parseFloat(qStats[0].total_marks);
 
+    // Check if faculty is assigned to this course
+    const [staffAssignments] = await pool.query(
+      `SELECT COUNT(*) AS assigned_count
+       FROM subject_staff_assignments ssa
+       WHERE ssa.subject_id = ?`,
+      [quiz.subject_id],
+    );
+
+    const [offeringFaculty] = await pool.query(
+      `SELECT COUNT(*) AS coordinator_count
+       FROM course_offerings co
+       WHERE co.subject_id = ? AND co.coordinator_faculty_id IS NOT NULL`,
+      [quiz.subject_id],
+    );
+
+    const hasAssignedFaculty =
+      (staffAssignments[0]?.assigned_count || 0) > 0 ||
+      (offeringFaculty[0]?.coordinator_count || 0) > 0;
+    quiz.has_assigned_faculty = hasAssignedFaculty;
+
+    // For students: Quiz is only available when faculty is assigned AND topic quiz is enabled AND quiz is published
+    if (req.user && req.user.role === "STUDENT") {
+      if (!hasAssignedFaculty) {
+        return res.status(200).json({
+          success: true,
+          data: null,
+          message: "No faculty in charge assigned to this course. Quiz is unavailable.",
+        });
+      }
+
+      if (!quiz.topic_quiz_enabled) {
+        return res.status(200).json({
+          success: true,
+          data: null,
+          message: "Quiz is disabled for this unit topic.",
+        });
+      }
+
+      if (quiz.status !== "Published") {
+        return res.status(200).json({
+          success: true,
+          data: null,
+          message: "Quiz is currently in draft and not yet published by the faculty in charge.",
+        });
+      }
+    }
+
     return res.status(200).json({ success: true, data: quiz });
   } catch (err) {
     console.error("[AcademicQuiz] getTopicQuiz error:", err);

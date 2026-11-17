@@ -405,6 +405,143 @@ async function updatePermissionPolicy(req, res) {
   }
 }
 
+/**
+ * GET /api/v1/academic/admin/oversight
+ * College-wide academic oversight for Admin
+ */
+async function getAdminAcademicOversight(req, res) {
+  try {
+    const { department_id, search } = req.query;
+
+    // 1. All uploaded materials across college
+    let matSql = `
+      SELECT 
+        m.material_id, m.title, m.type, m.version, m.status, m.required_flag, m.created_at, m.file_ref,
+        s.subject_code, s.name AS subject_name, s.owner_department_id AS department_id,
+        t.title AS topic_title,
+        d.name AS department_name, d.code AS department_code,
+        COALESCE(f.full_name, u.full_name, u.username) AS faculty_name,
+        f.employee_code,
+        (SELECT COUNT(*) FROM academic_material_progress p WHERE p.material_id = m.material_id AND p.status = 'COMPLETED') AS completed_students_count
+      FROM academic_materials m
+      JOIN academic_topics t ON m.topic_id = t.topic_id
+      JOIN subjects s ON t.subject_id = s.subject_id
+      LEFT JOIN departments d ON s.owner_department_id = d.department_id
+      LEFT JOIN users u ON m.created_by = u.user_id
+      LEFT JOIN faculty f ON u.faculty_id = f.faculty_id
+    `;
+    const matParams = [];
+    const matConds = [];
+    if (department_id) {
+      matConds.push("s.owner_department_id = ?");
+      matParams.push(department_id);
+    }
+    if (search) {
+      matConds.push("(m.title LIKE ? OR s.subject_code LIKE ? OR s.name LIKE ? OR f.full_name LIKE ?)");
+      matParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (matConds.length > 0) matSql += " WHERE " + matConds.join(" AND ");
+    matSql += " ORDER BY m.created_at DESC LIMIT 200";
+    const [materials] = await pool.query(matSql, matParams);
+
+    // 2. All quizzes across college
+    let quizSql = `
+      SELECT 
+        q.quiz_id, q.title, q.version, q.time_limit, q.pass_mark, q.max_attempts, q.open_at, q.close_at, q.status, q.created_at,
+        s.subject_code, s.name AS subject_name, s.owner_department_id AS department_id,
+        t.title AS topic_title,
+        d.name AS department_name, d.code AS department_code,
+        COALESCE(f.full_name, u.full_name, u.username) AS faculty_name,
+        f.employee_code,
+        (SELECT COUNT(*) FROM academic_questions qn WHERE qn.topic_id = q.topic_id AND qn.status = 'Approved') AS total_questions,
+        (SELECT COUNT(*) FROM academic_attempts a WHERE a.quiz_id = q.quiz_id) AS total_attempts,
+        (SELECT COUNT(*) FROM academic_attempts a WHERE a.quiz_id = q.quiz_id AND a.result = 'PASSED') AS passed_attempts
+      FROM academic_quizzes q
+      JOIN academic_topics t ON q.topic_id = t.topic_id
+      JOIN subjects s ON t.subject_id = s.subject_id
+      LEFT JOIN departments d ON s.owner_department_id = d.department_id
+      LEFT JOIN users u ON q.created_by = u.user_id
+      LEFT JOIN faculty f ON u.faculty_id = f.faculty_id
+    `;
+    const quizParams = [];
+    const quizConds = [];
+    if (department_id) {
+      quizConds.push("s.owner_department_id = ?");
+      quizParams.push(department_id);
+    }
+    if (search) {
+      quizConds.push("(q.title LIKE ? OR s.subject_code LIKE ? OR s.name LIKE ? OR f.full_name LIKE ?)");
+      quizParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (quizConds.length > 0) quizSql += " WHERE " + quizConds.join(" AND ");
+    quizSql += " ORDER BY q.created_at DESC LIMIT 200";
+    const [quizzes] = await pool.query(quizSql, quizParams);
+
+    // 3. Student activities in quizzes & study materials
+    const [studentAttempts] = await pool.query(
+      `SELECT 
+        a.attempt_id, a.attempt_number, a.score, a.max_score, a.percentage, a.result, a.status, a.started_at, a.submitted_at,
+        q.title AS quiz_title,
+        s.subject_code, s.name AS subject_name,
+        COALESCE(stu.full_name, u.full_name, u.username) AS student_name,
+        COALESCE(stu.register_no, u.username) AS register_no,
+        d.name AS department_name
+       FROM academic_attempts a
+       JOIN academic_quizzes q ON a.quiz_id = q.quiz_id
+       JOIN academic_topics t ON q.topic_id = t.topic_id
+       JOIN subjects s ON t.subject_id = s.subject_id
+       LEFT JOIN departments d ON s.owner_department_id = d.department_id
+       LEFT JOIN users u ON a.person_id = u.user_id
+       LEFT JOIN students stu ON u.student_id = stu.student_id
+       ORDER BY a.started_at DESC LIMIT 100`,
+    );
+
+    // 4. College-wide faculty summary
+    const [facultySummary] = await pool.query(
+      `SELECT 
+        f.faculty_id, f.employee_code, f.full_name, f.email,
+        des.name AS designation,
+        d.name AS department_name, d.code AS department_code,
+        COUNT(DISTINCT m.material_id) AS total_materials,
+        COUNT(DISTINCT q.quiz_id) AS total_quizzes
+       FROM faculty f
+       LEFT JOIN designations des ON f.designation_id = des.designation_id
+       LEFT JOIN departments d ON f.department_id = d.department_id
+       LEFT JOIN users u ON f.faculty_id = u.faculty_id
+       LEFT JOIN academic_materials m ON m.created_by = u.user_id
+       LEFT JOIN academic_quizzes q ON q.created_by = u.user_id
+       WHERE f.is_active = 1
+       GROUP BY f.faculty_id, f.employee_code, f.full_name, f.email, des.name, d.name, d.code
+       ORDER BY d.name ASC, f.full_name ASC`,
+    );
+
+    // 5. Overall summary counts
+    const [summaryCounts] = await pool.query(
+      `SELECT 
+        (SELECT COUNT(*) FROM faculty WHERE is_active = 1) AS total_faculty,
+        (SELECT COUNT(*) FROM academic_materials) AS total_materials,
+        (SELECT COUNT(*) FROM academic_quizzes) AS total_quizzes,
+        (SELECT COUNT(*) FROM academic_attempts) AS total_attempts,
+        (SELECT COUNT(DISTINCT person_id) FROM academic_attempts) AS total_students_participated,
+        (SELECT ROUND(AVG(percentage), 1) FROM academic_attempts WHERE status = 'SUBMITTED') AS average_quiz_score`,
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        summary: summaryCounts[0] || {},
+        materials,
+        quizzes,
+        student_activities: studentAttempts,
+        faculty_summary: facultySummary,
+      },
+    });
+  } catch (err) {
+    console.error("[AcademicAnalytics] getAdminAcademicOversight error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
 module.exports = {
   getSubjectResults,
   exportSubjectResultsCsv,
@@ -412,5 +549,6 @@ module.exports = {
   correctAttemptScore,
   getPermissionsMatrix,
   updatePermissionPolicy,
+  getAdminAcademicOversight,
 };
 

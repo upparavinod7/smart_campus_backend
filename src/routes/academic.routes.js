@@ -122,6 +122,11 @@ router.get(
   authenticateToken,
   materialCtrl.downloadMaterial,
 );
+router.get(
+  "/materials/:id/view",
+  authenticateToken,
+  materialCtrl.downloadMaterial,
+);
 
 // ==========================================
 // 3. Quiz Authoring & Question Bank
@@ -181,9 +186,11 @@ router.post(
   requireStudentSubjectEnrollment(),
   quizAttemptCtrl.startQuizAttempt,
 );
+router.get("/quizzes/:id/my-attempt", authenticateToken, quizAttemptCtrl.getMyQuizAttempt);
 router.get("/attempts/:id", authenticateToken, quizAttemptCtrl.getAttemptById);
 router.put("/attempts/:id/answers", authenticateToken, quizAttemptCtrl.autosaveAnswers);
 router.post("/attempts/:id/submit", authenticateToken, quizAttemptCtrl.submitQuizAttempt);
+router.post("/attempts/:id/violation", authenticateToken, quizAttemptCtrl.reportQuizViolation);
 
 // ==========================================
 // 5. Results & Analytics
@@ -209,7 +216,17 @@ router.post(
 );
 
 // ==========================================
-// 6. Policy Matrix
+// 6. Admin Academic Oversight
+// ==========================================
+router.get(
+  "/admin/oversight",
+  authenticateToken,
+  authorizeRoles("ADMIN"),
+  resultsAnalyticsCtrl.getAdminAcademicOversight,
+);
+
+// ==========================================
+// 7. Policy Matrix
 // ==========================================
 router.get("/permissions", authenticateToken, resultsAnalyticsCtrl.getPermissionsMatrix);
 router.put(
