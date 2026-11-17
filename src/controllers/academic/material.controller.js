@@ -1,9 +1,14 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const pool = require("../../config/mysql");
 const { logAcademicEvent } = require("../../utils/academicLedger");
 const { extractTextFromMaterial } = require("../../utils/textExtractor");
 const { STORAGE_DIR } = require("../../utils/multipart");
+const {
+  isStudentEnrolledInSubject,
+  isFacultyAuthorizedForSubject,
+} = require("../../middleware/academicAuth");
 
 /**
  * GET /api/v1/academic/topics/:id/materials
@@ -266,7 +271,7 @@ async function updateMaterial(req, res) {
   try {
     const materialId = req.params.id;
     const user = req.user;
-    const { title, description, required_flag, status, position, change_summary } = req.body;
+    const { title, description, notes_content, required_flag, status, position, change_summary } = req.body;
 
     const [existing] = await pool.query("SELECT * FROM academic_materials WHERE material_id = ?", [materialId]);
     if (existing.length === 0) {
@@ -281,19 +286,41 @@ async function updateMaterial(req, res) {
     let newMime = mat.mime_type;
     let newSize = mat.file_size;
 
-    // If a new file is uploaded or explicitly version-bumped on a published material
-    if (uploadedFile) {
+    const effectiveDesc = notes_content !== undefined ? notes_content : description;
+    const titleChanged = title !== undefined && title.trim() !== mat.title;
+    const descChanged = effectiveDesc !== undefined && effectiveDesc !== mat.description;
+    const reqFlagChanged =
+      required_flag !== undefined &&
+      ((required_flag === true || required_flag === 1 || required_flag === "1" ? 1 : 0) !== mat.required_flag);
+
+    const contentChanged = Boolean(uploadedFile || titleChanged || descChanged || reqFlagChanged);
+
+    // If published and content changed (or new file), bump version and create snapshot
+    if (mat.status === "Published" && contentChanged) {
       newVersion += 1;
-      newFileRef = uploadedFile.path;
-      newMime = uploadedFile.mimetype;
-      newSize = uploadedFile.size;
+      if (uploadedFile) {
+        newFileRef = uploadedFile.path;
+        newMime = uploadedFile.mimetype;
+        newSize = uploadedFile.size;
+      }
+      const summaryParts = [];
+      if (uploadedFile) summaryParts.push("File updated");
+      if (titleChanged) summaryParts.push("Title updated");
+      if (descChanged) summaryParts.push("Content updated");
+      if (reqFlagChanged) summaryParts.push("Requirement flag updated");
+
+      const summary = change_summary || (summaryParts.length > 0 ? summaryParts.join(", ") : "Published content updated");
 
       await pool.query(
         `INSERT INTO academic_material_versions
           (material_id, version, file_ref, mime_type, file_size, change_summary, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [materialId, newVersion, newFileRef, newMime, newSize, change_summary || "File updated", user.user_id],
+        [materialId, newVersion, newFileRef, newMime, newSize, summary, user.user_id],
       );
+    } else if (uploadedFile) {
+      newFileRef = uploadedFile.path;
+      newMime = uploadedFile.mimetype;
+      newSize = uploadedFile.size;
     }
 
     const updates = ["version = ?", "file_ref = ?", "mime_type = ?", "file_size = ?"];
@@ -304,9 +331,9 @@ async function updateMaterial(req, res) {
       params.push(title.trim());
     }
 
-    if (description !== undefined) {
+    if (effectiveDesc !== undefined) {
       updates.push("description = ?");
-      params.push(description);
+      params.push(effectiveDesc);
     }
 
     if (required_flag !== undefined) {
@@ -322,6 +349,19 @@ async function updateMaterial(req, res) {
     if (position !== undefined) {
       updates.push("position = ?");
       params.push(parseInt(position, 10));
+    }
+
+    if (uploadedFile || descChanged) {
+      const extracted = await extractTextFromMaterial({
+        type: mat.type,
+        fileRef: newFileRef,
+        contentText: effectiveDesc !== undefined ? effectiveDesc : mat.description,
+        description: effectiveDesc !== undefined ? effectiveDesc : mat.description,
+      });
+      if (extracted) {
+        updates.push("extracted_text_ref = ?");
+        params.push(extracted);
+      }
     }
 
     params.push(materialId);
@@ -471,10 +511,10 @@ async function updateMaterialProgress(req, res) {
 }
 
 /**
- * GET /api/v1/academic/materials/:id/download
- * Serves secure file stream from storage outside web root
+ * GET /api/v1/academic/materials/:id/signed-url
+ * Generates short-lived HMAC-signed download link (AC-SEC-01)
  */
-async function downloadMaterial(req, res) {
+async function generateSignedDownloadUrl(req, res) {
   try {
     const materialId = req.params.id;
     const user = req.user;
@@ -492,6 +532,148 @@ async function downloadMaterial(req, res) {
     }
 
     const mat = rows[0];
+
+    if (!mat.file_ref) {
+      return res.status(400).json({ success: false, message: "Material does not have an associated file" });
+    }
+
+    // Role-based checks
+    if (user.role === "STUDENT") {
+      if (mat.status !== "Published") {
+        return res.status(403).json({ success: false, message: "Material is not yet published" });
+      }
+      const enrolled = await isStudentEnrolledInSubject(user.student_id, mat.subject_id);
+      if (!enrolled) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. You are not enrolled in this subject.",
+        });
+      }
+    } else if (user.role === "FACULTY") {
+      const authorized = await isFacultyAuthorizedForSubject(user.faculty_id, mat.subject_id);
+      if (!authorized) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. You are not assigned to or authorized for this subject.",
+        });
+      }
+    }
+
+    const secret = process.env.JWT_SECRET || "smart-campus-jwt-secret-key-2026";
+    const expires = Date.now() + 5 * 60 * 1000; // 5 minutes
+    const signature = crypto
+      .createHmac("sha256", secret)
+      .update(`${materialId}:${user.user_id}:${expires}`)
+      .digest("hex");
+
+    const downloadUrl = `/api/v1/academic/materials/${materialId}/download?expires=${expires}&user_id=${user.user_id}&signature=${signature}`;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        material_id: parseInt(materialId, 10),
+        download_url: downloadUrl,
+        expires_at: new Date(expires).toISOString(),
+        expires_in_seconds: 300,
+      },
+    });
+  } catch (err) {
+    console.error("[AcademicMaterial] generateSignedDownloadUrl error:", err);
+    return res.status(500).json({ success: false, message: "Failed to generate signed download URL" });
+  }
+}
+
+/**
+ * GET /api/v1/academic/materials/:id/download
+ * Serves secure file stream from storage outside web root
+ * Supports both Bearer token auth (req.user) and short-lived HMAC signed query params
+ */
+async function downloadMaterial(req, res) {
+  try {
+    const materialId = req.params.id;
+    let user = req.user;
+
+    // Check for query-based HMAC signature auth
+    const { expires, user_id, signature } = req.query;
+    if (signature && expires && user_id) {
+      const expiresNum = Number(expires);
+      if (isNaN(expiresNum) || Date.now() > expiresNum) {
+        return res.status(403).json({
+          success: false,
+          message: "Signed download link has expired",
+          code: "SIGNATURE_EXPIRED",
+        });
+      }
+
+      const secret = process.env.JWT_SECRET || "smart-campus-jwt-secret-key-2026";
+      const expectedSignature = crypto
+        .createHmac("sha256", secret)
+        .update(`${materialId}:${user_id}:${expires}`)
+        .digest("hex");
+
+      const sigBuffer = Buffer.from(String(signature), "hex");
+      const expectedBuffer = Buffer.from(expectedSignature, "hex");
+
+      if (
+        sigBuffer.length !== expectedBuffer.length ||
+        !crypto.timingSafeEqual(sigBuffer, expectedBuffer)
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Invalid or tampered download signature",
+          code: "INVALID_SIGNATURE",
+        });
+      }
+
+      const [userRows] = await pool.query(
+        "SELECT user_id, username, role, faculty_id, student_id, is_active FROM users WHERE user_id = ?",
+        [user_id],
+      );
+
+      if (userRows.length === 0 || !userRows[0].is_active) {
+        return res.status(403).json({
+          success: false,
+          message: "User account not found or inactive",
+        });
+      }
+
+      user = userRows[0];
+    }
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication or valid signed download URL required",
+      });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT m.*, t.subject_id 
+       FROM academic_materials m
+       JOIN academic_topics t ON m.topic_id = t.topic_id
+       WHERE m.material_id = ?`,
+      [materialId],
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Material not found" });
+    }
+
+    const mat = rows[0];
+
+    // Verify student permissions
+    if (user.role === "STUDENT") {
+      if (mat.status !== "Published") {
+        return res.status(403).json({ success: false, message: "Material is not yet published" });
+      }
+      const enrolled = await isStudentEnrolledInSubject(user.student_id, mat.subject_id);
+      if (!enrolled) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. You are not enrolled in this subject.",
+        });
+      }
+    }
 
     if (!mat.file_ref) {
       return res.status(400).json({ success: false, message: "Material does not have an associated file" });
@@ -578,6 +760,7 @@ module.exports = {
   deleteMaterial,
   updateMaterialProgress,
   downloadMaterial,
+  generateSignedDownloadUrl,
   reorderMaterials,
 };
 

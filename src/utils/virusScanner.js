@@ -1,7 +1,16 @@
 /**
- * Virus Scanner Abstraction Hook
- * Inspects uploaded file buffers or paths.
- * Returns { status: 'CLEAN' } or { status: 'INFECTED', reason: '...' }
+ * Virus Scanner Abstraction Interface
+ * 
+ * Production Security Notice:
+ * The static header inspections and regex-based heuristic checks below provide basic sanity
+ * checks to intercept malformed uploads and executable header tampering before disk persistence.
+ * However, local heuristic checks DO NOT replace an enterprise antivirus engine.
+ * 
+ * In production deployments:
+ * 1. Configure a daemonized scanner (e.g. ClamAV daemon / clamd via TCP socket or UNIX domain socket).
+ * 2. Alternatively, integrate an asynchronous cloud scanner / quarantine pipeline (e.g. AWS GuardDuty / S3 bucket scans).
+ * 3. The scanner contract expects:
+ *    async function scanFileBuffer(buffer, filename, mimeType) -> { status: 'CLEAN' | 'INFECTED' | 'SKIPPED', reason?: string }
  */
 async function scanFileBuffer(buffer, filename = "", mimeType = "") {
   try {
@@ -52,4 +61,3 @@ async function scanFileBuffer(buffer, filename = "", mimeType = "") {
 module.exports = {
   scanFileBuffer,
 };
-

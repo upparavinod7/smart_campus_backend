@@ -29,7 +29,8 @@ database/mysql/
 │   ├── 004_add_full_name_to_users.sql
 │   ├── 005_add_profile_demographics.sql
 │   ├── 006_remove_demographic_defaults.sql
-│   └── 007_create_academic_module.sql
+│   ├── 007_create_academic_module.sql
+│   └── 008_fix_academic_fk_and_settings.sql
 ├── seeds/                         # Environment seeds
 │   ├── reference_data.sql         # Institutional reference catalogs & academic permission matrix
 │   └── demo_data.sql              # Dev/QA test fixtures (Admin, Faculty, Student demo accounts)
@@ -74,6 +75,14 @@ The migration runner:
 - Executes pending migrations deterministically in alphabetical/numerical order.
 - Records the executed version in `schema_migrations`.
 - Stops immediately with exit code `1` if any migration fails.
+
+#### Notable Migrations:
+- **007_create_academic_module.sql:** Deploys core Academic Module schema (13 tables) covering Topics, Materials, Material Versions & Progress, Question Bank, Quizzes, Attempts, Answers, Score Corrections, ML Jobs, and Audit Ledger.
+- **008_fix_academic_fk_and_settings.sql:** 
+  1. Replaces `ON DELETE CASCADE` with `ON DELETE RESTRICT` on `academic_attempt_answers.fk_ans_question` to prevent physical destruction of historical question answers and score records.
+  2. Drops `fk_ledger_person` cascade constraint from `academic_audit_ledger` to guarantee permanent compliance retention of academic audit logs even when accounts are purged, snapshotting `actor_role` and `actor_username`.
+  3. Adds `questions_to_draw INT UNSIGNED NULL` to `academic_quizzes` for configurable random question pooling.
+  4. Adds `ml_enabled TINYINT(1) NOT NULL DEFAULT 1` to `subjects` for granular administrative and departmental AI question generation control.
 
 ---
 

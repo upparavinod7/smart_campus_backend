@@ -15,7 +15,7 @@
     "db:seed:ref": "node src/scripts/seedRef.js",
     "db:seed:demo": "node src/scripts/seedDemo.js",
     "db:seed:academic": "node src/scripts/seedAcademicDemo.js",
-    "db:seed:academic:reset": "node src/scripts/seedAcademicDemo.js --reset",
+    "db:seed:academic:reset": "node src/scripts/seedAcademicDemo.js --reset --confirm-destructive-reset",
     "db:dump": "node src/scripts/dumpDb.js",
     "db:setup": "node src/scripts/initDb.js && node src/scripts/migrate.js && node src/scripts/seedRef.js"
   },

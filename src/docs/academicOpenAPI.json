@@ -105,6 +105,7 @@
           "open_at": { "type": "string", "format": "date-time" },
           "close_at": { "type": "string", "format": "date-time" },
           "status": { "type": "string", "enum": ["Draft", "Published", "Archived"] },
+          "questions_to_draw": { "type": "integer", "description": "Number of questions randomly drawn per attempt; null indicates all" },
           "shuffle_questions": { "type": "boolean" },
           "shuffle_options": { "type": "boolean" }
         }
@@ -363,6 +364,17 @@
         }
       }
     },
+    "/materials/{id}/signed-url": {
+      "get": {
+        "summary": "Generate short-lived HMAC-signed material download URL (AC-SEC-01)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Signed download URL details" },
+          "403": { "description": "Unpublished material or student not enrolled" },
+          "404": { "description": "Material not found" }
+        }
+      }
+    },
     "/topics/{id}/quiz": {
       "get": {
         "summary": "Get quiz settings, version, and question counts for topic",
@@ -453,6 +465,49 @@
         "responses": { "200": { "description": "Preview payload" } }
       }
     },
+    "/topics/{id}/questions/generate": {
+      "post": {
+        "summary": "Submit async ML question-generation job for topic (AC-ML-01)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "count": { "type": "integer", "default": 5 },
+                  "difficulty": { "type": "string", "enum": ["Easy", "Medium", "Hard"], "default": "Medium" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Job queued" },
+          "403": { "description": "ML generation disabled for subject" }
+        }
+      }
+    },
+    "/jobs/{id}": {
+      "get": {
+        "summary": "Poll ML job status and generated draft questions for staff approval (AC-ML-01)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Job status and draft questions" },
+          "404": { "description": "Job not found" }
+        }
+      }
+    },
+    "/quizzes/{id}/status": {
+      "get": {
+        "summary": "Check quiz unlock status, prerequisite completion, and remaining attempts (AC-STU-03)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Quiz lock status and prerequisite details" },
+          "404": { "description": "Quiz not found" }
+        }
+      }
+    },
     "/quizzes/{id}/attempts": {
       "post": {
         "summary": "Start or resume quiz attempt (Enforces topic quiz_enabled, published status, open window, required material completion, attempt limit)",
@@ -536,6 +591,16 @@
       "get": {
         "summary": "Get authenticated student's personal learning progress across all enrolled subjects",
         "responses": { "200": { "description": "Personal progress summary" } }
+      }
+    },
+    "/departments/{id}/trends": {
+      "get": {
+        "summary": "Get department-level academic trends, completion rates, and at-risk students for HOD (AC-RES-03)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Department academic trends and at-risk students" },
+          "403": { "description": "Cross-department access denied" }
+        }
       }
     },
     "/attempts/{id}/score-correction": {

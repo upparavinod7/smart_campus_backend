@@ -14,6 +14,156 @@ function shuffleArray(array) {
 }
 
 /**
+ * GET /api/v1/academic/quizzes/:id/status
+ * Evaluates unlock status and prerequisites without starting an attempt
+ */
+async function getQuizUnlockStatus(req, res) {
+  try {
+    const quizId = req.params.id;
+    const user = req.user;
+
+    const [quizRows] = await pool.query(
+      `SELECT q.*, t.quiz_enabled, t.subject_id, t.title AS topic_title
+       FROM academic_quizzes q
+       JOIN academic_topics t ON q.topic_id = t.topic_id
+       WHERE q.quiz_id = ?`,
+      [quizId],
+    );
+
+    if (quizRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Quiz not found" });
+    }
+
+    const quiz = quizRows[0];
+    const now = new Date();
+    const lockReasons = [];
+
+    // Rule 1: Topic quiz enabled
+    const isTopicEnabled = Boolean(quiz.quiz_enabled);
+    if (!isTopicEnabled) {
+      lockReasons.push("Quiz is disabled for this topic.");
+    }
+
+    // Rule 2: Quiz status
+    const isPublished = quiz.status === "Published";
+    if (!isPublished) {
+      lockReasons.push(`Quiz is currently in '${quiz.status}' status and has not been published.`);
+    }
+
+    // Rule 3: Availability window
+    let isWindowOpen = true;
+    if (quiz.open_at && now < new Date(quiz.open_at)) {
+      isWindowOpen = false;
+      lockReasons.push(`Quiz is scheduled to open on ${new Date(quiz.open_at).toLocaleString()}.`);
+    }
+    if (quiz.close_at && now > new Date(quiz.close_at)) {
+      isWindowOpen = false;
+      lockReasons.push(`Quiz closed on ${new Date(quiz.close_at).toLocaleString()}.`);
+    }
+
+    // Rule 4: Required study materials completion check
+    const [uncompletedReq] = await pool.query(
+      `SELECT m.material_id, m.title, m.type, m.position,
+              COALESCE(p.percent, 0) AS current_percent,
+              COALESCE(p.status, 'NOT_STARTED') AS progress_status
+       FROM academic_materials m
+       LEFT JOIN academic_material_progress p ON m.material_id = p.material_id AND p.person_id = ?
+       WHERE m.topic_id = ? AND m.status = 'Published' AND m.required_flag = 1
+         AND (p.completed_at IS NULL OR p.percent < 100)`,
+      [user.user_id, quiz.topic_id],
+    );
+
+    const requiredCompleted = uncompletedReq.length === 0;
+    if (!requiredCompleted) {
+      lockReasons.push(
+        `Incomplete required study material: ${uncompletedReq.length} required item(s) must be completed before attempting this quiz.`,
+      );
+    }
+
+    // Rule 5: Attempt limit & previous results
+    const [attemptStats] = await pool.query(
+      `SELECT 
+        COUNT(*) AS total_attempts,
+        COUNT(CASE WHEN result = 'PASSED' THEN 1 END) AS passed_attempts,
+        MAX(percentage) AS best_percentage
+       FROM academic_attempts 
+       WHERE quiz_id = ? AND person_id = ? AND status = 'SUBMITTED'`,
+      [quizId, user.user_id],
+    );
+
+    const totalAttempts = attemptStats[0].total_attempts || 0;
+    const passedAttempts = attemptStats[0].passed_attempts || 0;
+    const bestPercentage = attemptStats[0].best_percentage ? parseFloat(attemptStats[0].best_percentage) : null;
+    const maxAttempts = quiz.max_attempts || 3;
+    const hasRemainingAttempts = totalAttempts < maxAttempts;
+
+    if (!hasRemainingAttempts) {
+      lockReasons.push(`Maximum attempt limit reached (${totalAttempts}/${maxAttempts}).`);
+    }
+
+    // Check for active in-progress attempt
+    const [activeAttempts] = await pool.query(
+      `SELECT attempt_id, attempt_number, started_at, expires_at
+       FROM academic_attempts
+       WHERE quiz_id = ? AND person_id = ? AND status = 'IN_PROGRESS'
+       ORDER BY started_at DESC LIMIT 1`,
+      [quizId, user.user_id],
+    );
+
+    let activeAttemptSummary = null;
+    if (activeAttempts.length > 0) {
+      const active = activeAttempts[0];
+      const isExpired = active.expires_at && now > new Date(active.expires_at);
+      if (!isExpired) {
+        activeAttemptSummary = {
+          attempt_id: active.attempt_id,
+          attempt_number: active.attempt_number,
+          started_at: active.started_at,
+          expires_at: active.expires_at,
+          remaining_seconds: Math.max(0, Math.floor((new Date(active.expires_at) - now) / 1000)),
+        };
+      }
+    }
+
+    const isUnlocked =
+      isTopicEnabled &&
+      isPublished &&
+      isWindowOpen &&
+      requiredCompleted &&
+      (hasRemainingAttempts || activeAttemptSummary !== null);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        quiz_id: parseInt(quizId, 10),
+        topic_id: quiz.topic_id,
+        topic_title: quiz.topic_title,
+        title: quiz.title,
+        time_limit: quiz.time_limit,
+        pass_mark: parseFloat(quiz.pass_mark),
+        is_unlocked: isUnlocked,
+        status: quiz.status,
+        open_at: quiz.open_at,
+        close_at: quiz.close_at,
+        is_window_open: isWindowOpen,
+        max_attempts: maxAttempts,
+        attempts_taken: totalAttempts,
+        remaining_attempts: Math.max(0, maxAttempts - totalAttempts),
+        is_passed: passedAttempts > 0,
+        best_percentage: bestPercentage,
+        required_materials_completed: requiredCompleted,
+        incomplete_required_materials: uncompletedReq,
+        lock_reasons: lockReasons,
+        active_attempt: activeAttemptSummary,
+      },
+    });
+  } catch (err) {
+    console.error("[AcademicAttempt] getQuizUnlockStatus error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
+/**
  * POST /api/v1/academic/quizzes/:id/attempts
  * Initiates an attempt enforcing all unlock rules
  */
@@ -157,8 +307,24 @@ async function startQuizAttempt(req, res) {
       });
     }
 
+    let questionsPool = rawQuestions;
+
+    // Random Question Selection if questions_to_draw is configured (AC-QZ-05)
+    if (quiz.questions_to_draw && quiz.questions_to_draw > 0) {
+      if (rawQuestions.length < quiz.questions_to_draw) {
+        return res.status(400).json({
+          success: false,
+          code: "INSUFFICIENT_QUESTIONS_IN_BANK",
+          message: `Cannot start quiz: question bank has only ${rawQuestions.length} approved question(s), but quiz requires ${quiz.questions_to_draw}.`,
+        });
+      }
+      // Shuffle bank and draw exactly questions_to_draw items
+      const shuffledBank = shuffleArray(rawQuestions);
+      questionsPool = shuffledBank.slice(0, quiz.questions_to_draw);
+    }
+
     // Process & sanitize questions for student snapshot
-    let sanitizedQuestions = rawQuestions.map((q) => {
+    let sanitizedQuestions = questionsPool.map((q) => {
       let opts = q.options;
       if (typeof opts === "string") {
         try {
@@ -412,6 +578,31 @@ async function submitQuizAttempt(req, res) {
       });
     }
 
+    // Idempotency Key check: if another request already finalized with this key
+    if (idempotency_key) {
+      const [keyRows] = await conn.query(
+        "SELECT * FROM academic_attempts WHERE idempotency_key = ? LIMIT 1",
+        [idempotency_key],
+      );
+      if (keyRows.length > 0) {
+        const existingAttempt = keyRows[0];
+        await conn.commit();
+        return res.status(200).json({
+          success: true,
+          already_submitted: true,
+          message: "Attempt already submitted (idempotent response)",
+          data: {
+            attempt_id: existingAttempt.attempt_id,
+            score: parseFloat(existingAttempt.score || 0),
+            max_score: parseFloat(existingAttempt.max_score || 0),
+            percentage: parseFloat(existingAttempt.percentage || 0),
+            result: existingAttempt.result,
+            submitted_at: existingAttempt.submitted_at,
+          },
+        });
+      }
+    }
+
     // If answers provided in submission payload, record them first
     if (Array.isArray(answers)) {
       for (const item of answers) {
@@ -506,6 +697,64 @@ async function submitQuizAttempt(req, res) {
     const passMark = parseFloat(attempt.pass_mark) || 50.0;
     const finalResult = percentage >= passMark ? "PASSED" : "FAILED";
 
+    // Remediation Calculation for Failed Attempts (AC-STU-07)
+    let remediation = null;
+    if (finalResult === "FAILED") {
+      const missedItems = gradedBreakdown.filter((item) => !item.is_correct);
+      const missedIds = missedItems.map((q) => q.question_id);
+
+      let recommendedMaterials = [];
+      if (missedIds.length > 0) {
+        const [missedDetails] = await conn.query(
+          "SELECT question_id, text, source_ref, difficulty FROM academic_questions WHERE question_id IN (?)",
+          [missedIds],
+        );
+
+        const [matRows] = await conn.query(
+          `SELECT material_id, topic_id, type, title, description, required_flag
+           FROM academic_materials
+           WHERE topic_id = ? AND status = 'Published'
+           ORDER BY required_flag DESC, position ASC`,
+          [attempt.topic_id],
+        );
+
+        recommendedMaterials = matRows.map((m) => {
+          const isDirectlyMatched = missedDetails.some(
+            (md) => md.source_ref && (m.title.toLowerCase().includes(md.source_ref.toLowerCase()) || String(m.material_id) === String(md.source_ref)),
+          );
+          return {
+            material_id: m.material_id,
+            title: m.title,
+            type: m.type,
+            required_flag: m.required_flag === 1,
+            directly_recommended: isDirectlyMatched || m.required_flag === 1,
+          };
+        });
+      }
+
+      // Check remaining attempts
+      const [attemptCountRows] = await conn.query(
+        "SELECT COUNT(*) AS total FROM academic_attempts WHERE quiz_id = ? AND person_id = ? AND status = 'SUBMITTED'",
+        [attempt.quiz_id, user.user_id],
+      );
+      const attemptsCount = (attemptCountRows[0].total || 0) + 1;
+      const maxAttempts = attempt.max_attempts || 3;
+
+      remediation = {
+        weak_topics: [
+          {
+            topic_id: attempt.topic_id,
+            missed_questions_count: missedItems.length,
+            total_questions: questionSet.length,
+          },
+        ],
+        missed_questions_count: missedItems.length,
+        recommended_materials: recommendedMaterials,
+        retry_allowed: attemptsCount < maxAttempts,
+        remaining_attempts: Math.max(0, maxAttempts - attemptsCount),
+      };
+    }
+
     await conn.query(
       `UPDATE academic_attempts SET 
         status = 'SUBMITTED',
@@ -545,6 +794,7 @@ async function submitQuizAttempt(req, res) {
         pass_mark: passMark,
         result: finalResult,
         breakdown: gradedBreakdown,
+        remediation,
       },
     });
   } catch (err) {
@@ -556,10 +806,159 @@ async function submitQuizAttempt(req, res) {
   }
 }
 
+/**
+ * POST /api/v1/academic/attempts/:id/violation
+ * Authoritatively records proctoring integrity violations and enforces cancellation on 3rd strike
+ */
+async function recordAttemptViolation(req, res) {
+  const conn = await pool.getConnection();
+  try {
+    const attemptId = req.params.id;
+    const user = req.user;
+    const { reason, strike = 3 } = req.body;
+
+    await conn.beginTransaction();
+
+    const [attempts] = await conn.query(
+      `SELECT a.*, q.quiz_id, q.title AS quiz_title
+       FROM academic_attempts a
+       JOIN academic_quizzes q ON a.quiz_id = q.quiz_id
+       WHERE a.attempt_id = ? FOR UPDATE`,
+      [attemptId],
+    );
+
+    if (attempts.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, message: "Attempt not found" });
+    }
+
+    const attempt = attempts[0];
+
+    // Ownership check: Student can only record for own attempt; Faculty/Admin can flag any
+    if (user.role === "STUDENT" && attempt.person_id !== user.user_id) {
+      await conn.rollback();
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    // Idempotent cancellation: if already cancelled, return success
+    if (attempt.status === "CANCELLED") {
+      await conn.commit();
+      return res.status(200).json({
+        success: true,
+        already_cancelled: true,
+        message: "Attempt is already marked as cancelled",
+        status: "CANCELLED",
+      });
+    }
+
+    if (attempt.status !== "IN_PROGRESS") {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Cannot record violation. Attempt status is '${attempt.status}'`,
+      });
+    }
+
+    const violationText = reason || "Focus departure / integrity violation limit reached";
+
+    // Update attempt status to CANCELLED with 0 score
+    await conn.query(
+      `UPDATE academic_attempts SET
+        status = 'CANCELLED',
+        score = 0.00,
+        percentage = 0.00,
+        result = 'FAILED',
+        submitted_at = NOW()
+       WHERE attempt_id = ?`,
+      [attemptId],
+    );
+
+    await conn.commit();
+
+    // Log to immutable academic audit ledger
+    await logAcademicEvent({
+      personId: user.user_id,
+      locationId: `ACAD-QUIZ-${attempt.quiz_id}`,
+      eventType: "INTEGRITY_VIOLATION",
+      reasonCode: "PROCTOR_STRIKE_TERMINATION",
+      payload: {
+        attemptId: attempt.attempt_id,
+        quizId: attempt.quiz_id,
+        strike,
+        violationReason: violationText,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Attempt sitting terminated for academic integrity review",
+      status: "CANCELLED",
+      attempt_id: parseInt(attemptId, 10),
+    });
+  } catch (err) {
+    await conn.rollback();
+    console.error("[AcademicAttempt] recordAttemptViolation error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * GET /api/v1/academic/quizzes/:id/my-attempt
+ * Retrieves the student's latest submitted or active attempt for a given quiz
+ */
+async function getMyAttemptResult(req, res) {
+  try {
+    const quizId = req.params.id;
+    const user = req.user;
+
+    const [rows] = await pool.query(
+      `SELECT a.*, q.title AS quiz_title, q.time_limit, q.pass_mark, q.show_explanation,
+              q.topic_id, t.subject_id, t.title AS topic_title
+       FROM academic_attempts a
+       JOIN academic_quizzes q ON a.quiz_id = q.quiz_id
+       JOIN academic_topics t ON q.topic_id = t.topic_id
+       WHERE a.quiz_id = ? AND a.person_id = ?
+       ORDER BY a.started_at DESC LIMIT 1`,
+      [quizId, user.user_id],
+    );
+
+    if (rows.length === 0) {
+      return res.status(200).json({ success: true, data: null });
+    }
+
+    const attempt = rows[0];
+
+    if (typeof attempt.question_set === "string") {
+      try {
+        attempt.question_set = JSON.parse(attempt.question_set);
+      } catch (e) {}
+    }
+
+    const [answers] = await pool.query(
+      "SELECT question_id, answer, is_correct, marks_awarded, answered_at FROM academic_attempt_answers WHERE attempt_id = ?",
+      [attempt.attempt_id],
+    );
+    attempt.answers = answers;
+
+    return res.status(200).json({
+      success: true,
+      data: attempt,
+    });
+  } catch (err) {
+    console.error("[AcademicAttempt] getMyAttemptResult error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
 module.exports = {
+  getQuizUnlockStatus,
   startQuizAttempt,
   getAttemptById,
   autosaveAnswers,
   submitQuizAttempt,
+  recordAttemptViolation,
+  getMyAttemptResult,
 };
 
