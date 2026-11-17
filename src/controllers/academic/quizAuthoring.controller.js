@@ -192,13 +192,15 @@ async function getTopicQuestions(req, res) {
 
     const [questions] = await pool.query(sql, params);
 
-    // Normalize options if JSON string
+    // Normalize options if JSON string and provide aliases
     questions.forEach((q) => {
       if (typeof q.options === "string") {
         try {
           q.options = JSON.parse(q.options);
         } catch (e) {}
       }
+      q.correct_answer = q.answer;
+      q.correct_option = q.answer;
     });
 
     return res.status(200).json({
@@ -232,11 +234,20 @@ async function createQuestion(req, res) {
       status = "Approved",
     } = req.body;
 
+    const resolvedAnswer =
+      answer !== undefined && String(answer).trim() !== ""
+        ? String(answer).trim()
+        : req.body.correct_answer !== undefined && String(req.body.correct_answer).trim() !== ""
+        ? String(req.body.correct_answer).trim()
+        : req.body.correct_option !== undefined && String(req.body.correct_option).trim() !== ""
+        ? String(req.body.correct_option).trim()
+        : null;
+
     if (!text || !text.trim()) {
       return res.status(400).json({ success: false, message: "Question text is required" });
     }
 
-    if (!answer || !String(answer).trim()) {
+    if (!resolvedAnswer) {
       return res.status(400).json({ success: false, message: "Question correct answer is required" });
     }
 
@@ -269,7 +280,7 @@ async function createQuestion(req, res) {
         type,
         text.trim(),
         parsedOptions ? JSON.stringify(parsedOptions) : null,
-        String(answer).trim(),
+        String(resolvedAnswer).trim(),
         explanation || null,
         parseFloat(marks) || 1.0,
         difficulty,
@@ -299,7 +310,8 @@ async function createQuestion(req, res) {
         type,
         text: text.trim(),
         options: parsedOptions,
-        answer: String(answer).trim(),
+        answer: String(resolvedAnswer).trim(),
+        correct_answer: String(resolvedAnswer).trim(),
         explanation,
         marks: parseFloat(marks) || 1.0,
         difficulty,
@@ -346,6 +358,12 @@ async function updateQuestion(req, res) {
     const questionId = req.params.id;
     const user = req.user;
     const { type, text, options, answer, explanation, marks, difficulty, source_ref, status } = req.body;
+    const resolvedAnswer =
+      answer !== undefined
+        ? answer
+        : req.body.correct_answer !== undefined
+        ? req.body.correct_answer
+        : req.body.correct_option;
 
     const [existing] = await pool.query("SELECT * FROM academic_questions WHERE question_id = ?", [questionId]);
     if (existing.length === 0) {
@@ -368,9 +386,9 @@ async function updateQuestion(req, res) {
       updates.push("options = ?");
       params.push(parsed);
     }
-    if (answer !== undefined) {
+    if (resolvedAnswer !== undefined) {
       updates.push("answer = ?");
-      params.push(String(answer).trim());
+      params.push(String(resolvedAnswer).trim());
     }
     if (explanation !== undefined) {
       updates.push("explanation = ?");

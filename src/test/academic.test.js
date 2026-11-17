@@ -354,6 +354,39 @@ test("Question Bank & Quiz Configuration: Authoring & Preview", async () => {
   });
   assert.equal(q2Res.status, 201);
 
+  // 2b. Add MCQ question using correct_answer / correct_option payload (Frontend compatibility)
+  const q3Res = await fetch(`${baseUrl}/academic/topics/${testTopicId}/questions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${facultyToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: "MCQ",
+      text: "Which activation function outputs values in the range [0, 1]?",
+      options: [
+        { key: "A", text: "Sigmoid" },
+        { key: "B", text: "ReLU" },
+        { key: "C", text: "LeakyReLU" },
+        { key: "D", text: "Linear" },
+      ],
+      correct_answer: "A",
+      explanation: "Sigmoid maps real numbers to the (0, 1) probability interval.",
+      marks: 1.0,
+      difficulty: "Easy",
+    }),
+  });
+  const q3Body = await q3Res.json();
+  assert.equal(q3Res.status, 201);
+  assert.equal(q3Body.data.answer, "A");
+  assert.equal(q3Body.data.correct_answer, "A");
+
+  // Clean up temporary question so quiz preview and attempt downstream tests preserve 2-question benchmark
+  await fetch(`${baseUrl}/academic/questions/${q3Body.data.question_id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+
   // 3. Configure and publish the quiz
   const quizConfigRes = await fetch(`${baseUrl}/academic/topics/${testTopicId}/quiz`, {
     method: "PUT",
