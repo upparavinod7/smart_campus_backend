@@ -1,8 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
+const path = require("node:path");
+const fs = require("node:fs");
 const app = require("../app");
 const pool = require("../config/mysql");
+const { logAcademicEvent } = require("../utils/academicLedger");
 
 let server;
 let baseUrl;
@@ -82,6 +85,28 @@ test.before(async () => {
 test.after(async () => {
   // Cleanup test topic and cascading academic records created during test
   if (testTopicId) {
+    await pool.query(
+      `DELETE FROM academic_score_corrections WHERE attempt_id IN (
+        SELECT a.attempt_id FROM academic_attempts a 
+        JOIN academic_quizzes q ON a.quiz_id = q.quiz_id 
+        WHERE q.topic_id = ?
+      )`,
+      [testTopicId],
+    );
+    await pool.query(
+      `DELETE FROM academic_attempt_answers WHERE attempt_id IN (
+        SELECT a.attempt_id FROM academic_attempts a 
+        JOIN academic_quizzes q ON a.quiz_id = q.quiz_id 
+        WHERE q.topic_id = ?
+      )`,
+      [testTopicId],
+    );
+    await pool.query(
+      `DELETE FROM academic_attempts WHERE quiz_id IN (
+        SELECT quiz_id FROM academic_quizzes WHERE topic_id = ?
+      )`,
+      [testTopicId],
+    );
     await pool.query("DELETE FROM academic_topics WHERE topic_id = ?", [testTopicId]);
   }
   await new Promise((resolve) => server.close(resolve));
@@ -439,6 +464,7 @@ test("Quiz Attempt Engine: Resume, Autosave Answers, and Idempotent Submission",
   assert.equal(saveBody.saved_count, 1);
 
   // 3. Final submission
+  const testIdempotencyKey = `test_key_${Date.now()}`;
   const submitRes = await fetch(`${baseUrl}/academic/attempts/${testAttemptId}/submit`, {
     method: "POST",
     headers: {
@@ -446,7 +472,7 @@ test("Quiz Attempt Engine: Resume, Autosave Answers, and Idempotent Submission",
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      idempotency_key: "test_key_attempt_1",
+      idempotency_key: testIdempotencyKey,
       answers: [
         { question_id: testQuestionId, answer: "Backpropagation" },
       ],
@@ -467,7 +493,7 @@ test("Quiz Attempt Engine: Resume, Autosave Answers, and Idempotent Submission",
       Authorization: `Bearer ${studentToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ idempotency_key: "test_key_attempt_1" }),
+    body: JSON.stringify({ idempotency_key: testIdempotencyKey }),
   });
   const dupSubmitBody = await dupSubmitRes.json();
   assert.equal(dupSubmitRes.status, 200);
@@ -640,9 +666,324 @@ test("Multipart Upload & Virus Scanner Security Hook", async () => {
   assert.match(uploadBody.message, /security scanner/i);
 });
 
+test("Phase 1: Question Soft-Archiving & Historical Attempt Preservation (AC-QZ-07)", async () => {
+  // testQuestionId is referenced in academic_attempt_answers for testAttemptId
+  const [ansBefore] = await pool.query(
+    "SELECT * FROM academic_attempt_answers WHERE question_id = ?",
+    [testQuestionId],
+  );
+  assert.ok(ansBefore.length > 0, "Question should be referenced in attempt answers");
+
+  // Deleting referenced question should NOT physically delete it, but soft-archive it
+  const delRes = await fetch(`${baseUrl}/academic/questions/${testQuestionId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  const delBody = await delRes.json();
+  assert.equal(delRes.status, 200);
+  assert.equal(delBody.archived, true);
+  assert.match(delBody.message, /archived/i);
+
+  // Verify status in DB is 'Archived'
+  const [qRows] = await pool.query("SELECT status FROM academic_questions WHERE question_id = ?", [testQuestionId]);
+  assert.equal(qRows.length, 1);
+  assert.equal(qRows[0].status, "Archived");
+
+  // Verify attempt answers are completely preserved
+  const [ansAfter] = await pool.query(
+    "SELECT * FROM academic_attempt_answers WHERE question_id = ?",
+    [testQuestionId],
+  );
+  assert.equal(ansAfter.length, ansBefore.length);
+
+  // Verify raw hard delete is blocked by MySQL foreign key RESTRICT constraint
+  await assert.rejects(
+    async () => {
+      await pool.query("DELETE FROM academic_questions WHERE question_id = ?", [testQuestionId]);
+    },
+    (err) => err.code === "ER_ROW_IS_REFERENCED_2" || /foreign key constraint fails/i.test(err.message),
+  );
+});
+
+test("Phase 1: Audit Ledger Preservation on User Account Deletion", async () => {
+  // Create temporary test user
+  const [uRes] = await pool.query(
+    "INSERT INTO users (username, email, password_hash, role) VALUES ('temp_audit_user', 'temp_audit@test.edu', 'hash', 'STUDENT')",
+  );
+  const tempUserId = uRes.insertId;
+
+  // Log compliance event with actor snapshot
+  const eventId = await logAcademicEvent({
+    personId: tempUserId,
+    actorRole: "STUDENT",
+    actorUsername: "temp_audit_user",
+    locationId: "ACAD-TEST",
+    eventType: "USER_LIFECYCLE_TEST",
+    payload: { retentionTest: true },
+  });
+  assert.ok(eventId, "Event ID should be returned");
+
+  // Delete the user
+  await pool.query("DELETE FROM users WHERE user_id = ?", [tempUserId]);
+
+  // Verify user is gone from users table
+  const [userCheck] = await pool.query("SELECT * FROM users WHERE user_id = ?", [tempUserId]);
+  assert.equal(userCheck.length, 0);
+
+  // Verify audit ledger entry STILL EXISTS and preserves actor snapshot
+  const [ledgerRows] = await pool.query("SELECT * FROM academic_audit_ledger WHERE ledger_id = ?", [eventId]);
+  assert.equal(ledgerRows.length, 1);
+  assert.equal(ledgerRows[0].person_id, tempUserId);
+  assert.equal(ledgerRows[0].actor_role, "STUDENT");
+  assert.equal(ledgerRows[0].actor_username, "temp_audit_user");
+
+  // Clean up test audit row
+  await pool.query("DELETE FROM academic_audit_ledger WHERE ledger_id = ?", [eventId]);
+});
+
+test("Phase 1: Academic Demo Seeder Security Safeguards", async () => {
+  const { execSync } = require("child_process");
+  const scriptPath = path.resolve(__dirname, "../scripts/seedAcademicDemo.js");
+
+  // 1. Refuses execution in production environment
+  assert.throws(
+    () => {
+      execSync(`NODE_ENV=production node "${scriptPath}"`, { stdio: "pipe" });
+    },
+    (err) => err.status === 1,
+  );
+
+  // 2. Refuses execution against production database name
+  assert.throws(
+    () => {
+      execSync(`NODE_ENV=development DB_USER=root DB_NAME=campus_production node "${scriptPath}"`, { stdio: "pipe" });
+    },
+    (err) => err.status === 1,
+  );
+
+  // 3. Refuses destructive reset without explicit confirmation flag
+  assert.throws(
+    () => {
+      execSync(`NODE_ENV=development DB_USER=root DB_NAME=test_db node "${scriptPath}" --reset`, { stdio: "pipe" });
+    },
+    (err) => err.status === 1,
+  );
+});
+
+test("Phase 2: ML Question Generation Bridge & Job Status Polling (AC-ML-01, AC-ROL-02)", async () => {
+  // 1. Post question generation job
+  const genRes = await fetch(`${baseUrl}/academic/topics/${testTopicId}/questions/generate`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${facultyToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      count: 3,
+      difficulty_mix: { easy: 1, medium: 2 },
+    }),
+  });
+  const genBody = await genRes.json();
+  assert.equal(genRes.status, 202);
+  assert.equal(genBody.success, true);
+  assert.equal(genBody.data.status, "PENDING");
+  const testJobId = genBody.data.job_id;
+
+  // 2. Poll job status
+  const jobRes = await fetch(`${baseUrl}/academic/jobs/${testJobId}`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  const jobBody = await jobRes.json();
+  assert.equal(jobRes.status, 200);
+  assert.equal(jobBody.success, true);
+  assert.equal(jobBody.data.job_id, testJobId);
+  assert.equal(jobBody.data.status, "PENDING");
+
+  // 3. Test per-subject ML feature toggle (AC-ROL-02)
+  await pool.query("UPDATE subjects SET ml_enabled = 0 WHERE subject_id = ?", [testSubjectId]);
+  const disabledGenRes = await fetch(`${baseUrl}/academic/topics/${testTopicId}/questions/generate`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${facultyToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ count: 5 }),
+  });
+  const disabledGenBody = await disabledGenRes.json();
+  assert.equal(disabledGenRes.status, 403);
+  assert.equal(disabledGenBody.code, "ML_DISABLED_FOR_SUBJECT");
+
+  // Re-enable ML for subject
+  await pool.query("UPDATE subjects SET ml_enabled = 1 WHERE subject_id = ?", [testSubjectId]);
+});
+
+test("Phase 2: Standalone Quiz Unlock Status Endpoint (AC-STU-03)", async () => {
+  const attemptsBefore = await pool.query(
+    "SELECT COUNT(*) AS cnt FROM academic_attempts WHERE quiz_id = ? AND person_id = ?",
+    [testQuizId, studentUserId],
+  );
+
+  const statusRes = await fetch(`${baseUrl}/academic/quizzes/${testQuizId}/status`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const statusBody = await statusRes.json();
+  assert.equal(statusRes.status, 200);
+  assert.equal(statusBody.success, true);
+  assert.equal(typeof statusBody.data.is_unlocked, "boolean");
+  assert.equal(typeof statusBody.data.required_materials_completed, "boolean");
+  assert.ok(statusBody.data.attempts_taken >= 1);
+  assert.ok(statusBody.data.max_attempts >= 1);
+
+  // Verify status check did NOT create any attempts (read-only)
+  const attemptsAfter = await pool.query(
+    "SELECT COUNT(*) AS cnt FROM academic_attempts WHERE quiz_id = ? AND person_id = ?",
+    [testQuizId, studentUserId],
+  );
+  assert.equal(attemptsAfter[0][0].cnt, attemptsBefore[0][0].cnt);
+});
+
+test("Phase 2: HOD Department Trends & Cross-Department Isolation (AC-RES-03)", async () => {
+  // Find department of testSubjectId
+  const [subRows] = await pool.query("SELECT owner_department_id FROM subjects WHERE subject_id = ?", [testSubjectId]);
+  const deptId = subRows[0].owner_department_id;
+
+  // 1. Authorized faculty views own department trends
+  const deptRes = await fetch(`${baseUrl}/academic/departments/${deptId}/trends`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  const deptBody = await deptRes.json();
+  assert.equal(deptRes.status, 200);
+  assert.equal(deptBody.success, true);
+  assert.ok(deptBody.data.summary.total_subjects >= 1);
+  assert.ok(Array.isArray(deptBody.data.subjects_trends));
+
+  // 2. Cross-department isolation: Querying non-existent or foreign department returns 403
+  const foreignDeptRes = await fetch(`${baseUrl}/academic/departments/999999/trends`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  assert.equal(foreignDeptRes.status, 403);
+});
+
+test("Phase 2: Random Question Selection with questions_to_draw (AC-QZ-05)", async () => {
+  // Add a second approved question to testTopicId
+  const [q2Res] = await pool.query(
+    `INSERT INTO academic_questions 
+      (topic_id, type, text, options, answer, explanation, marks, difficulty, status, created_by)
+     VALUES (?, 'MCQ', 'What is gradient descent?', '["Optimization algorithm", "Loss function", "Activation function"]', 'Optimization algorithm', 'Optimizes weights', 1.0, 'Easy', 'Approved', ?)`,
+    [testTopicId, facultyId],
+  );
+  const q2Id = q2Res.insertId;
+
+  // Allow extra attempts on testQuizId
+  await pool.query("UPDATE academic_quizzes SET max_attempts = 15, questions_to_draw = 1 WHERE quiz_id = ?", [testQuizId]);
+
+  // Start attempt with questions_to_draw = 1
+  const drawAttemptRes = await fetch(`${baseUrl}/academic/quizzes/${testQuizId}/attempts`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const drawAttemptBody = await drawAttemptRes.json();
+  assert.equal(drawAttemptRes.status, 201);
+  assert.equal(drawAttemptBody.data.questions.length, 1);
+
+  // Resume attempt: verify frozen question set contains the exact same 1 question
+  const resumeRes = await fetch(`${baseUrl}/academic/attempts/${drawAttemptBody.data.attempt_id}`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const resumeBody = await resumeRes.json();
+  assert.equal(resumeRes.status, 200);
+  assert.equal(resumeBody.data.question_set.length, 1);
+  assert.equal(resumeBody.data.question_set[0].question_id, drawAttemptBody.data.questions[0].question_id);
+
+  // Cancel active attempt so next start request evaluates question drawing logic
+  await pool.query("UPDATE academic_attempts SET status = 'CANCELLED' WHERE quiz_id = ? AND person_id = ? AND status = 'IN_PROGRESS'", [testQuizId, studentUserId]);
+
+  // Error case: questions_to_draw exceeds available approved questions
+  await pool.query("UPDATE academic_quizzes SET questions_to_draw = 50 WHERE quiz_id = ?", [testQuizId]);
+  const excessRes = await fetch(`${baseUrl}/academic/quizzes/${testQuizId}/attempts`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const excessBody = await excessRes.json();
+  assert.equal(excessRes.status, 400);
+  assert.equal(excessBody.code, "INSUFFICIENT_QUESTIONS_IN_BANK");
+
+  // Restore questions_to_draw
+  await pool.query("UPDATE academic_quizzes SET questions_to_draw = NULL WHERE quiz_id = ?", [testQuizId]);
+});
+
+test("Phase 2: Failed Student Remediation Feedback (AC-STU-07)", async () => {
+  // Ensure no active attempt before starting fresh attempt
+  await pool.query("UPDATE academic_attempts SET status = 'CANCELLED' WHERE quiz_id = ? AND person_id = ? AND status = 'IN_PROGRESS'", [testQuizId, studentUserId]);
+  await pool.query("UPDATE academic_quizzes SET max_attempts = 20 WHERE quiz_id = ?", [testQuizId]);
+
+  const startRes = await fetch(`${baseUrl}/academic/quizzes/${testQuizId}/attempts`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const startBody = await startRes.json();
+  assert.equal(startRes.status, 201);
+  const failAttemptId = startBody.data.attempt_id;
+
+  // Submit completely wrong answers to force failure
+  const submitFailRes = await fetch(`${baseUrl}/academic/attempts/${failAttemptId}/submit`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${studentToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      idempotency_key: `fail_test_${Date.now()}`,
+      answers: [
+        { question_id: testQuestionId, answer: "Totally Wrong Answer 123" },
+      ],
+    }),
+  });
+  const submitFailBody = await submitFailRes.json();
+  assert.equal(submitFailRes.status, 200);
+  assert.equal(submitFailBody.data.result, "FAILED");
+  assert.ok(submitFailBody.data.remediation !== null);
+  assert.ok(submitFailBody.data.remediation.weak_topics.length > 0);
+  assert.ok(submitFailBody.data.remediation.missed_questions_count > 0);
+  assert.ok(Array.isArray(submitFailBody.data.remediation.recommended_materials));
+  assert.equal(typeof submitFailBody.data.remediation.retry_allowed, "boolean");
+});
+
 test("Topic Deletion & Cascade Cleanliness", async () => {
-  // Delete the test topic
-  const delTopicRes = await fetch(`${baseUrl}/academic/topics/${testTopicId}`, {
+  // 1. Attempting to delete testTopicId (which has historical attempts) must return 409 Conflict
+  const blockedDelRes = await fetch(`${baseUrl}/academic/topics/${testTopicId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  const blockedDelBody = await blockedDelRes.json();
+  assert.equal(blockedDelRes.status, 409);
+  assert.equal(blockedDelBody.code, "TOPIC_HAS_HISTORICAL_RECORDS");
+
+  // 2. Create a clean unattempted topic to verify cascade deletion
+  const cleanTopicRes = await fetch(`${baseUrl}/academic/subjects/${testSubjectId}/topics`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${facultyToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title: "Clean Temporary Topic",
+      description: "Topic with no student attempts for cascade test",
+      position: 99,
+    }),
+  });
+  const cleanTopicBody = await cleanTopicRes.json();
+  assert.equal(cleanTopicRes.status, 201);
+  const cleanTopicId = cleanTopicBody.data ? cleanTopicBody.data.topic_id : cleanTopicBody.topic_id;
+
+  // Add material to clean topic
+  await pool.query(
+    "INSERT INTO academic_materials (topic_id, type, title, status) VALUES (?, 'Notes', 'Temp Notes', 'Draft')",
+    [cleanTopicId],
+  );
+
+  // Delete the unattempted topic
+  const delTopicRes = await fetch(`${baseUrl}/academic/topics/${cleanTopicId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${facultyToken}` },
   });
@@ -650,14 +991,172 @@ test("Topic Deletion & Cascade Cleanliness", async () => {
   assert.equal(delTopicRes.status, 200);
   assert.equal(delTopicBody.success, true);
 
-  // Verify materials for this topic are gone
-  const [mats] = await pool.query("SELECT * FROM academic_materials WHERE topic_id = ?", [testTopicId]);
+  // Verify materials for this topic are cascade-deleted
+  const [mats] = await pool.query("SELECT * FROM academic_materials WHERE topic_id = ?", [cleanTopicId]);
   assert.equal(mats.length, 0);
 
-  // Verify quiz for this topic is gone
-  const [quizzes] = await pool.query("SELECT * FROM academic_quizzes WHERE topic_id = ?", [testTopicId]);
+  // Verify quiz for this topic is cascade-deleted
+  const [quizzes] = await pool.query("SELECT * FROM academic_quizzes WHERE topic_id = ?", [cleanTopicId]);
   assert.equal(quizzes.length, 0);
+});
 
-  // Set testTopicId to null so after hook doesn't re-delete
-  testTopicId = null;
+test("Short-Lived HMAC-Signed Material Download URLs (AC-SEC-01)", async () => {
+  const testStorageDir = path.resolve(__dirname, "../../storage/materials");
+  if (!fs.existsSync(testStorageDir)) {
+    fs.mkdirSync(testStorageDir, { recursive: true });
+  }
+  const testFilePath = path.join(testStorageDir, `signed_test_${Date.now()}.txt`);
+  fs.writeFileSync(testFilePath, "CONFIDENTIAL_ACADEMIC_MATERIAL_CONTENT");
+
+  // Create a published material with this file
+  const [insertMat] = await pool.query(
+    `INSERT INTO academic_materials 
+      (topic_id, type, title, description, file_ref, version, status, mime_type, file_size, created_by)
+     VALUES (?, 'PDF', 'Signed URL Test Material', 'Test signed download URLs', ?, 1, 'Published', 'text/plain', 39, ?)`,
+    [testTopicId, testFilePath, facultyId],
+  );
+  const signedMatId = insertMat.insertId;
+
+  // 1. Generate signed URL as student
+  const signRes = await fetch(`${baseUrl}/academic/materials/${signedMatId}/signed-url`, {
+    headers: { Authorization: `Bearer ${studentToken}` },
+  });
+  const signBody = await signRes.json();
+  assert.equal(signRes.status, 200);
+  assert.equal(signBody.success, true);
+  assert.ok(signBody.data.download_url);
+  assert.equal(signBody.data.expires_in_seconds, 300);
+
+  // 2. Download via signed URL (NO Authorization header!)
+  const downloadUrl = signBody.data.download_url;
+  const fullDownloadUrl = `${baseUrl.replace("/api/v1", "")}${downloadUrl}`;
+  const dlRes = await fetch(fullDownloadUrl);
+  const dlText = await dlRes.text();
+  assert.equal(dlRes.status, 200);
+  assert.equal(dlText, "CONFIDENTIAL_ACADEMIC_MATERIAL_CONTENT");
+
+  // 3. Reject expired signature
+  const parsedUrl = new URL(fullDownloadUrl);
+  parsedUrl.searchParams.set("expires", String(Date.now() - 5000)); // 5 seconds in the past
+  const expiredRes = await fetch(parsedUrl.toString());
+  const expiredBody = await expiredRes.json();
+  assert.equal(expiredRes.status, 403);
+  assert.equal(expiredBody.code, "SIGNATURE_EXPIRED");
+
+  // 4. Reject tampered signature
+  parsedUrl.searchParams.set("expires", String(Date.now() + 60000));
+  parsedUrl.searchParams.set("signature", "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890");
+  const tamperedRes = await fetch(parsedUrl.toString());
+  const tamperedBody = await tamperedRes.json();
+  assert.equal(tamperedRes.status, 403);
+  assert.equal(tamperedBody.code, "INVALID_SIGNATURE");
+
+  // Cleanup file
+  if (fs.existsSync(testFilePath)) {
+    fs.unlinkSync(testFilePath);
+  }
+  await pool.query("DELETE FROM academic_materials WHERE material_id = ?", [signedMatId]);
+});
+
+test("Material Version Snapshots on Published Content Edits (AC-MAT-02)", async () => {
+  // 1. Create a published material
+  const [insertMat] = await pool.query(
+    `INSERT INTO academic_materials 
+      (topic_id, type, title, description, version, status, required_flag, created_by)
+     VALUES (?, 'Notes', 'Version Track Title', 'Initial Content Description', 1, 'Published', 0, ?)`,
+    [testTopicId, facultyId],
+  );
+  const verMatId = insertMat.insertId;
+
+  // Record initial version 1
+  await pool.query(
+    `INSERT INTO academic_material_versions
+      (material_id, version, change_summary, created_by)
+     VALUES (?, 1, 'Initial creation', ?)`,
+    [verMatId, facultyId],
+  );
+
+  // 2. Update title, description, and required flag
+  const updateRes = await fetch(`${baseUrl}/academic/materials/${verMatId}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${facultyToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title: "Updated Version Track Title",
+      description: "Updated Content Description with New Notes",
+      required_flag: true,
+      change_summary: "Major syllabus update",
+    }),
+  });
+  const updateBody = await updateRes.json();
+  assert.equal(updateRes.status, 200);
+  assert.equal(updateBody.version, 2);
+
+  // 3. Verify academic_material_versions has 2 records
+  const [versions] = await pool.query(
+    "SELECT * FROM academic_material_versions WHERE material_id = ? ORDER BY version ASC",
+    [verMatId],
+  );
+  assert.equal(versions.length, 2);
+  assert.equal(versions[0].version, 1);
+  assert.equal(versions[1].version, 2);
+  assert.equal(versions[1].change_summary, "Major syllabus update");
+
+  // Cleanup
+  await pool.query("DELETE FROM academic_materials WHERE material_id = ?", [verMatId]);
+});
+
+test("CSV Formula Injection Sanitization (AC-SEC-03)", async () => {
+  // Update topic title temporarily with a formula trigger
+  await pool.query(
+    "UPDATE academic_topics SET title = '=SUM(A1:A10)' WHERE topic_id = ?",
+    [testTopicId],
+  );
+
+  const csvRes = await fetch(`${baseUrl}/academic/subjects/${testSubjectId}/results/export`, {
+    headers: { Authorization: `Bearer ${facultyToken}` },
+  });
+  assert.equal(csvRes.status, 200);
+  assert.match(csvRes.headers.get("content-type"), /text\/csv/);
+
+  const csvContent = await csvRes.text();
+  // Formula =SUM(A1:A10) must be prefixed with single quote: "'=SUM(A1:A10)"
+  assert.ok(csvContent.includes("\"'=SUM(A1:A10)\""));
+  assert.ok(!csvContent.includes("\"=SUM(A1:A10)\""));
+
+  // Restore topic title
+  await pool.query(
+    "UPDATE academic_topics SET title = 'Test Topic 1 - Fundamentals' WHERE topic_id = ?",
+    [testTopicId],
+  );
+});
+
+test("Rate Limiting on Quiz Attempts (AC-SEC-04)", async () => {
+  let hitRateLimit = false;
+  let retryAfterHeader = null;
+
+  // Rapidly fire requests to trigger rate limit (max 10 requests per minute)
+  for (let i = 0; i < 12; i++) {
+    const res = await fetch(`${baseUrl}/academic/quizzes/${testQuizId}/attempts`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${studentToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (res.status === 429) {
+      hitRateLimit = true;
+      retryAfterHeader = res.headers.get("retry-after");
+      const body = await res.json();
+      assert.equal(body.code, "RATE_LIMIT_EXCEEDED");
+      break;
+    }
+  }
+
+  assert.equal(hitRateLimit, true);
+  assert.ok(retryAfterHeader !== null);
 });

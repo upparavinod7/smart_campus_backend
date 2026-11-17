@@ -212,6 +212,7 @@ CREATE TABLE IF NOT EXISTS `subjects` (
   `owner_school_id` int unsigned DEFAULT NULL,
   `owner_department_id` int unsigned DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `ml_enabled` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`subject_id`),
@@ -806,6 +807,7 @@ CREATE TABLE IF NOT EXISTS `academic_quizzes` (
   `open_at` datetime DEFAULT NULL,
   `close_at` datetime DEFAULT NULL,
   `status` enum('Draft','Published','Archived') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Draft',
+  `questions_to_draw` int unsigned DEFAULT NULL,
   `shuffle_questions` tinyint(1) NOT NULL DEFAULT '1',
   `shuffle_options` tinyint(1) NOT NULL DEFAULT '1',
   `show_explanation` tinyint(1) NOT NULL DEFAULT '1',
@@ -860,7 +862,7 @@ CREATE TABLE IF NOT EXISTS `academic_attempt_answers` (
   UNIQUE KEY `uq_attempt_question` (`attempt_id`,`question_id`),
   KEY `fk_ans_question` (`question_id`),
   CONSTRAINT `fk_ans_attempt` FOREIGN KEY (`attempt_id`) REFERENCES `academic_attempts` (`attempt_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_ans_question` FOREIGN KEY (`question_id`) REFERENCES `academic_questions` (`question_id`) ON DELETE CASCADE
+  CONSTRAINT `fk_ans_question` FOREIGN KEY (`question_id`) REFERENCES `academic_questions` (`question_id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------------------------
@@ -902,6 +904,8 @@ CREATE TABLE IF NOT EXISTS `academic_permission_matrix` (
 CREATE TABLE IF NOT EXISTS `academic_audit_ledger` (
   `ledger_id` int unsigned NOT NULL AUTO_INCREMENT,
   `person_id` int unsigned NOT NULL,
+  `actor_role` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `actor_username` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `location_id` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `timestamp` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `event_type` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -910,8 +914,7 @@ CREATE TABLE IF NOT EXISTS `academic_audit_ledger` (
   PRIMARY KEY (`ledger_id`),
   KEY `idx_ledger_person` (`person_id`),
   KEY `idx_ledger_event` (`event_type`),
-  KEY `idx_ledger_timestamp` (`timestamp`),
-  CONSTRAINT `fk_ledger_person` FOREIGN KEY (`person_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+  KEY `idx_ledger_timestamp` (`timestamp`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------------------------

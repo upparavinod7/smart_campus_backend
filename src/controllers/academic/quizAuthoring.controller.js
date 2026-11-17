@@ -1,5 +1,6 @@
 const pool = require("../../config/mysql");
 const { logAcademicEvent } = require("../../utils/academicLedger");
+const { isFacultyAuthorizedForSubject } = require("../../middleware/academicAuth");
 
 /**
  * GET /api/v1/academic/topics/:id/quiz
@@ -56,6 +57,7 @@ async function updateTopicQuiz(req, res) {
       time_limit,
       pass_mark,
       max_attempts,
+      questions_to_draw,
       open_at,
       close_at,
       status,
@@ -111,6 +113,10 @@ async function updateTopicQuiz(req, res) {
     if (max_attempts !== undefined) {
       updates.push("max_attempts = ?");
       params.push(Math.max(1, parseInt(max_attempts, 10)));
+    }
+    if (questions_to_draw !== undefined) {
+      updates.push("questions_to_draw = ?");
+      params.push(questions_to_draw === null || questions_to_draw === "" ? null : Math.max(1, parseInt(questions_to_draw, 10)));
     }
     if (open_at !== undefined) {
       updates.push("open_at = ?");
@@ -422,13 +428,48 @@ async function deleteQuestion(req, res) {
       return res.status(404).json({ success: false, message: "Question not found" });
     }
 
+    const q = existing[0];
+
+    // Check if question is referenced by historical student attempts
+    const [referenced] = await pool.query(
+      "SELECT 1 FROM academic_attempt_answers WHERE question_id = ? LIMIT 1",
+      [questionId],
+    );
+
+    if (referenced.length > 0) {
+      // Question has historical attempt answers: soft-archive it to protect attempt history
+      await pool.query(
+        "UPDATE academic_questions SET status = 'Archived', updated_at = NOW() WHERE question_id = ?",
+        [questionId],
+      );
+
+      await logAcademicEvent({
+        personId: req.user.user_id,
+        locationId: `ACAD-QUEST-${questionId}`,
+        eventType: "QUESTION_ARCHIVED",
+        reasonCode: "HISTORICAL_ATTEMPT_PROTECTION",
+        payload: {
+          questionId,
+          topicId: q.topic_id,
+          reason: "Question referenced by student attempts; soft-archived to protect historical records",
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        archived: true,
+        message: "Question is referenced by historical student attempts. It has been archived and removed from future quizzes to preserve historical records.",
+      });
+    }
+
+    // If not referenced by any attempts, physical delete is safe
     await pool.query("DELETE FROM academic_questions WHERE question_id = ?", [questionId]);
 
     await logAcademicEvent({
       personId: req.user.user_id,
       locationId: `ACAD-QUEST-${questionId}`,
       eventType: "QUESTION_DELETED",
-      payload: { topicId: existing[0].topic_id },
+      payload: { topicId: q.topic_id },
     });
 
     return res.status(200).json({ success: true, message: "Question deleted successfully" });
@@ -474,12 +515,194 @@ async function previewQuiz(req, res) {
         time_limit: quiz.time_limit,
         pass_mark: quiz.pass_mark,
         max_attempts: quiz.max_attempts,
+        questions_to_draw: quiz.questions_to_draw,
         total_questions: questions.length,
         questions,
       },
     });
   } catch (err) {
     console.error("[AcademicQuiz] previewQuiz error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
+/**
+ * POST /api/v1/academic/topics/:id/questions/generate
+ * Initiates an async ML question generation job
+ */
+async function generateQuestionsJob(req, res) {
+  try {
+    const topicId = req.params.id;
+    const user = req.user;
+    const {
+      material_id = null,
+      count = 5,
+      difficulty_mix = { easy: 2, medium: 2, hard: 1 },
+      question_types = ["MCQ", "TrueFalse"],
+    } = req.body;
+
+    // 1. Verify topic exists and get subject details
+    const [topicRows] = await pool.query(
+      `SELECT t.topic_id, t.title AS topic_title, t.subject_id, s.subject_code, s.name AS subject_name, s.ml_enabled
+       FROM academic_topics t
+       JOIN subjects s ON t.subject_id = s.subject_id
+       WHERE t.topic_id = ?`,
+      [topicId],
+    );
+
+    if (topicRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Topic not found" });
+    }
+
+    const topic = topicRows[0];
+
+    // 2. Verify subject-level ML feature flag (AC-ROL-02)
+    if (!topic.ml_enabled) {
+      return res.status(403).json({
+        success: false,
+        code: "ML_DISABLED_FOR_SUBJECT",
+        message: `ML-assisted features are currently disabled for subject '${topic.subject_code}' (${topic.subject_name}).`,
+      });
+    }
+
+    // 3. Verify material_id if specified belongs to this topic
+    if (material_id) {
+      const [matRows] = await pool.query(
+        "SELECT material_id FROM academic_materials WHERE material_id = ? AND topic_id = ?",
+        [material_id, topicId],
+      );
+      if (matRows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Specified material_id ${material_id} does not belong to topic ${topicId}`,
+        });
+      }
+    }
+
+    // 4. Create record in academic_ml_jobs
+    const jobConfig = {
+      count: Math.min(20, Math.max(1, parseInt(count, 10) || 5)),
+      difficulty_mix,
+      question_types,
+      topic_title: topic.topic_title,
+      requested_at: new Date().toISOString(),
+    };
+
+    const [result] = await pool.query(
+      `INSERT INTO academic_ml_jobs
+        (topic_id, material_id, job_type, status, requested_by, result_summary)
+       VALUES (?, ?, 'QUESTION_GENERATION', 'PENDING', ?, ?)`,
+      [topicId, material_id, user.user_id, JSON.stringify(jobConfig)],
+    );
+
+    const jobId = result.insertId;
+
+    await logAcademicEvent({
+      personId: user.user_id,
+      actorRole: user.role,
+      actorUsername: user.username,
+      locationId: `ACAD-TOPIC-${topicId}`,
+      eventType: "ML_JOB_QUEUED",
+      payload: { jobId, topicId, count: jobConfig.count, material_id },
+    });
+
+    return res.status(202).json({
+      success: true,
+      message: "ML question generation job queued successfully",
+      data: {
+        job_id: jobId,
+        topic_id: parseInt(topicId, 10),
+        subject_id: topic.subject_id,
+        material_id: material_id ? parseInt(material_id, 10) : null,
+        job_type: "QUESTION_GENERATION",
+        status: "PENDING",
+        created_at: new Date(),
+        config: jobConfig,
+      },
+    });
+  } catch (err) {
+    console.error("[AcademicQuiz] generateQuestionsJob error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
+/**
+ * GET /api/v1/academic/jobs/:id
+ * Polls status and draft questions for an ML job
+ */
+async function getJobStatus(req, res) {
+  try {
+    const jobId = req.params.id;
+    const user = req.user;
+
+    const [rows] = await pool.query(
+      `SELECT j.*, t.subject_id, t.title AS topic_title, s.subject_code, u.username AS requester_username
+       FROM academic_ml_jobs j
+       JOIN academic_topics t ON j.topic_id = t.topic_id
+       JOIN subjects s ON t.subject_id = s.subject_id
+       JOIN users u ON j.requested_by = u.user_id
+       WHERE j.job_id = ?`,
+      [jobId],
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    const job = rows[0];
+
+    // Authorization: User must be admin or the faculty who requested it, or assigned to the subject
+    if (user.role !== "ADMIN" && job.requested_by !== user.user_id) {
+      const isAuthorized = await isFacultyAuthorizedForSubject(user.faculty_id, job.subject_id);
+      if (!isAuthorized) {
+        return res.status(403).json({ success: false, message: "Access denied to this job" });
+      }
+    }
+
+    if (typeof job.result_summary === "string") {
+      try {
+        job.result_summary = JSON.parse(job.result_summary);
+      } catch (e) {}
+    }
+
+    // Fetch any draft questions produced by or linked to this job's topic
+    const [draftQuestions] = await pool.query(
+      `SELECT question_id, topic_id, type, text, options, marks, difficulty, source_ref, origin, status, created_at
+       FROM academic_questions
+       WHERE topic_id = ? AND origin = 'ML' AND status = 'Draft'
+       ORDER BY question_id ASC`,
+      [job.topic_id],
+    );
+
+    draftQuestions.forEach((q) => {
+      if (typeof q.options === "string") {
+        try {
+          q.options = JSON.parse(q.options);
+        } catch (e) {}
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        job_id: job.job_id,
+        topic_id: job.topic_id,
+        topic_title: job.topic_title,
+        subject_id: job.subject_id,
+        subject_code: job.subject_code,
+        job_type: job.job_type,
+        status: job.status,
+        requested_by: job.requested_by,
+        requester_username: job.requester_username,
+        result_summary: job.result_summary,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+        draft_questions_count: draftQuestions.length,
+        draft_questions: draftQuestions,
+      },
+    });
+  } catch (err) {
+    console.error("[AcademicQuiz] getJobStatus error:", err);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 }
@@ -493,5 +716,7 @@ module.exports = {
   updateQuestion,
   deleteQuestion,
   previewQuiz,
+  generateQuestionsJob,
+  getJobStatus,
 };
 

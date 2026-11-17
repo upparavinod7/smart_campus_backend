@@ -82,11 +82,61 @@ async function getSubjectResults(req, res) {
       [subjectId, subjectId],
     );
 
+    // 5. Subject quizzes
+    const [quizzes] = await pool.query(
+      `SELECT q.quiz_id, q.topic_id, q.title, q.status, q.pass_mark, q.time_limit,
+              t.title AS topic_title, t.position AS topic_position
+       FROM academic_quizzes q
+       JOIN academic_topics t ON q.topic_id = t.topic_id
+       WHERE t.subject_id = ?
+       ORDER BY t.position ASC, q.quiz_id ASC`,
+      [subjectId],
+    );
+
+    // 6. All quiz attempts for this subject
+    const [attempts] = await pool.query(
+      `SELECT 
+        a.attempt_id, a.quiz_id, a.person_id, a.attempt_number,
+        a.started_at, a.submitted_at, a.score, a.max_score, a.percentage,
+        a.result, a.status,
+        u.full_name AS student_name, u.email,
+        stu.student_id, stu.register_no,
+        q.title AS quiz_title, q.topic_id, q.pass_mark,
+        t.title AS topic_title, t.position AS topic_position,
+        (CASE WHEN a.status = 'CANCELLED' OR EXISTS (
+          SELECT 1 FROM academic_score_corrections sc 
+          WHERE sc.attempt_id = a.attempt_id AND sc.reason_code = 'CHEATING_FLAG'
+        ) THEN 1 ELSE 0 END) AS is_flagged_cheating,
+        (SELECT COUNT(*) FROM academic_score_corrections sc WHERE sc.attempt_id = a.attempt_id) AS score_corrections_count
+       FROM academic_attempts a
+       JOIN academic_quizzes q ON a.quiz_id = q.quiz_id
+       JOIN academic_topics t ON q.topic_id = t.topic_id
+       JOIN users u ON a.person_id = u.user_id
+       LEFT JOIN students stu ON u.student_id = stu.student_id
+       WHERE t.subject_id = ? AND a.status IN ('SUBMITTED', 'CANCELLED')
+       ORDER BY a.submitted_at DESC, a.attempt_id DESC`,
+      [subjectId],
+    );
+
+    const totalAttempts = attempts.length;
+    const passedAttempts = attempts.filter((a) => a.result === "PASSED").length;
+    const passRate = totalAttempts > 0 ? parseFloat(((passedAttempts / totalAttempts) * 100).toFixed(2)) : 0;
+    const averageScore = totalAttempts > 0
+      ? parseFloat((attempts.reduce((sum, a) => sum + (parseFloat(a.percentage) || 0), 0) / totalAttempts).toFixed(2))
+      : 0;
+    const cheatingFlagsCount = attempts.filter((a) => a.is_flagged_cheating === 1).length;
+
     return res.status(200).json({
       success: true,
       data: {
         subject_id: parseInt(subjectId, 10),
         total_enrolled: totalEnrolled,
+        total_attempts: totalAttempts,
+        pass_rate: passRate,
+        average_score: averageScore,
+        cheating_flags_count: cheatingFlagsCount,
+        quizzes,
+        attempts,
         funnel: topicFunnels,
         question_accuracy: questionStats,
         unstarted_students_count: unstartedStudents.length,
@@ -124,18 +174,29 @@ async function exportSubjectResultsCsv(req, res) {
       [subjectId],
     );
 
+    // Sanitize CSV cells to prevent Formula Injection / DDE vulnerabilities (OWASP CSV Injection)
+    const sanitizeCsvCell = (val) => {
+      if (val === null || val === undefined) return '""';
+      let str = String(val);
+      // If cell begins with formula trigger chars (=, +, -, @, \t, \r), prefix with single quote
+      if (/^[=+\-@\t\r]/.test(str)) {
+        str = "'" + str;
+      }
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+
     let csv = "Register No,Full Name,Topic,Attempt,Score,Max Score,Percentage,Result,Submitted At\n";
     rows.forEach((r) => {
       const line = [
-        `"${r.register_no || ""}"`,
-        `"${r.full_name || ""}"`,
-        `"${r.topic_title || "N/A"}"`,
-        r.attempt_number || "",
-        r.score !== null ? r.score : "",
-        r.max_score !== null ? r.max_score : "",
-        r.percentage !== null ? `${r.percentage}%` : "",
-        `"${r.result || "N/A"}"`,
-        `"${r.submitted_at ? new Date(r.submitted_at).toISOString() : ""}"`,
+        sanitizeCsvCell(r.register_no || ""),
+        sanitizeCsvCell(r.full_name || ""),
+        sanitizeCsvCell(r.topic_title || "N/A"),
+        r.attempt_number !== null && r.attempt_number !== undefined ? r.attempt_number : "",
+        r.score !== null && r.score !== undefined ? r.score : "",
+        r.max_score !== null && r.max_score !== undefined ? r.max_score : "",
+        r.percentage !== null && r.percentage !== undefined ? `${r.percentage}%` : "",
+        sanitizeCsvCell(r.result || "N/A"),
+        sanitizeCsvCell(r.submitted_at ? new Date(r.submitted_at).toISOString() : ""),
       ].join(",");
       csv += line + "\n";
     });
@@ -405,6 +466,169 @@ async function updatePermissionPolicy(req, res) {
   }
 }
 
+/**
+ * GET /api/v1/academic/departments/:id/trends
+ * Department-level academic trends for HOD and administrators (AC-RES-03)
+ */
+async function getDepartmentTrends(req, res) {
+  try {
+    const departmentId = parseInt(req.params.id, 10);
+    const user = req.user;
+
+    // 1. Authorization: ADMIN or Faculty belonging to this department
+    if (user.role === "FACULTY") {
+      const [facRows] = await pool.query(
+        "SELECT department_id FROM faculty WHERE faculty_id = ? AND is_active = 1",
+        [user.faculty_id],
+      );
+      if (facRows.length === 0 || facRows[0].department_id !== departmentId) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. You are only authorized to view academic trends for your own department.",
+        });
+      }
+    } else if (user.role !== "ADMIN") {
+      return res.status(403).json({ success: false, message: "Faculty or Admin role required" });
+    }
+
+    // 2. Fetch department details
+    const [deptRows] = await pool.query(
+      "SELECT department_id, name, code FROM departments WHERE department_id = ?",
+      [departmentId],
+    );
+    if (deptRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Department not found" });
+    }
+    const dept = deptRows[0];
+
+    // 3. Fetch all subjects belonging to this department
+    const [subjects] = await pool.query(
+      `SELECT subject_id, subject_code, name, is_active, ml_enabled 
+       FROM subjects 
+       WHERE owner_department_id = ?
+       ORDER BY subject_code ASC`,
+      [departmentId],
+    );
+
+    const subjectTrends = [];
+    let totalEnrolledAcrossDept = 0;
+    let totalAttemptsAcrossDept = 0;
+    let totalPassedAcrossDept = 0;
+    let sumPercentages = 0;
+    let gradedAttemptsCount = 0;
+    const allUnstartedTopic1Students = [];
+
+    for (const sub of subjects) {
+      // Enrolled students in this subject
+      const [enrRows] = await pool.query(
+        `SELECT COUNT(DISTINCT e.student_id) AS total_enrolled
+         FROM enrollments e
+         JOIN sections s ON e.section_id = s.section_id
+         JOIN course_offerings co ON s.offering_id = co.offering_id
+         WHERE co.subject_id = ? AND e.status = 'REGISTERED'`,
+        [sub.subject_id],
+      );
+      const subEnrolled = enrRows[0].total_enrolled || 0;
+      totalEnrolledAcrossDept += subEnrolled;
+
+      // Quiz statistics for this subject
+      const [quizStats] = await pool.query(
+        `SELECT 
+          COUNT(a.attempt_id) AS total_attempts,
+          COUNT(DISTINCT a.person_id) AS participating_students,
+          COUNT(CASE WHEN a.result = 'PASSED' THEN 1 END) AS passed_attempts,
+          AVG(a.percentage) AS avg_percentage
+         FROM academic_attempts a
+         JOIN academic_quizzes q ON a.quiz_id = q.quiz_id
+         JOIN academic_topics t ON q.topic_id = t.topic_id
+         WHERE t.subject_id = ? AND a.status = 'SUBMITTED'`,
+        [sub.subject_id],
+      );
+
+      const attempts = quizStats[0].total_attempts || 0;
+      const participating = quizStats[0].participating_students || 0;
+      const passed = quizStats[0].passed_attempts || 0;
+      const avgPct = quizStats[0].avg_percentage ? parseFloat(quizStats[0].avg_percentage) : 0;
+
+      totalAttemptsAcrossDept += attempts;
+      totalPassedAcrossDept += passed;
+      if (attempts > 0) {
+        sumPercentages += avgPct * attempts;
+        gradedAttemptsCount += attempts;
+      }
+
+      // Topic 1 unstarted students
+      const [topic1Rows] = await pool.query(
+        "SELECT topic_id, title FROM academic_topics WHERE subject_id = ? ORDER BY position ASC LIMIT 1",
+        [sub.subject_id],
+      );
+
+      let unstartedTopic1Students = [];
+      if (topic1Rows.length > 0) {
+        const topic1 = topic1Rows[0];
+        const [unstarted] = await pool.query(
+          `SELECT DISTINCT stu.student_id, stu.register_no, u.full_name, u.email, ? AS subject_code
+           FROM enrollments e
+           JOIN students stu ON e.student_id = stu.student_id
+           JOIN users u ON u.student_id = stu.student_id
+           JOIN sections s ON e.section_id = s.section_id
+           JOIN course_offerings co ON s.offering_id = co.offering_id
+           WHERE co.subject_id = ? AND e.status = 'REGISTERED'
+             AND u.user_id NOT IN (
+               SELECT DISTINCT p.person_id 
+               FROM academic_material_progress p
+               JOIN academic_materials m ON p.material_id = m.material_id
+               WHERE m.topic_id = ? AND p.status != 'NOT_STARTED'
+             )
+           ORDER BY stu.register_no ASC`,
+          [sub.subject_code, sub.subject_id, topic1.topic_id],
+        );
+        unstartedTopic1Students = unstarted;
+        allUnstartedTopic1Students.push(...unstarted);
+      }
+
+      subjectTrends.push({
+        subject_id: sub.subject_id,
+        subject_code: sub.subject_code,
+        name: sub.name,
+        ml_enabled: Boolean(sub.ml_enabled),
+        enrolled_students: subEnrolled,
+        quiz_metrics: {
+          total_attempts: attempts,
+          participating_students: participating,
+          passed_attempts: passed,
+          average_score_percentage: parseFloat(avgPct.toFixed(2)),
+          pass_rate_percentage: attempts > 0 ? parseFloat(((passed / attempts) * 100).toFixed(2)) : 0,
+        },
+        topic1_unstarted_count: unstartedTopic1Students.length,
+      });
+    }
+
+    const deptAvgScore = gradedAttemptsCount > 0 ? parseFloat((sumPercentages / gradedAttemptsCount).toFixed(2)) : 0;
+    const deptPassRate = totalAttemptsAcrossDept > 0 ? parseFloat(((totalPassedAcrossDept / totalAttemptsAcrossDept) * 100).toFixed(2)) : 0;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        department: dept,
+        summary: {
+          total_subjects: subjects.length,
+          total_enrolled_students: totalEnrolledAcrossDept,
+          total_quiz_attempts: totalAttemptsAcrossDept,
+          overall_average_score: deptAvgScore,
+          overall_pass_rate: deptPassRate,
+          students_unstarted_topic1_count: allUnstartedTopic1Students.length,
+        },
+        subjects_trends: subjectTrends,
+        students_unstarted_topic1: allUnstartedTopic1Students,
+      },
+    });
+  } catch (err) {
+    console.error("[AcademicAnalytics] getDepartmentTrends error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
 module.exports = {
   getSubjectResults,
   exportSubjectResultsCsv,
@@ -412,5 +636,6 @@ module.exports = {
   correctAttemptScore,
   getPermissionsMatrix,
   updatePermissionPolicy,
+  getDepartmentTrends,
 };
 

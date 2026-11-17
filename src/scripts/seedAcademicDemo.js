@@ -61,8 +61,13 @@ async function seedAcademicDemo() {
   let connection;
 
   try {
-    if (process.env.NODE_ENV === "production") {
-      console.error("[SEED-ACADEMIC] ✗ Refusing to run demo seed script in production environment.");
+    // Safety Check 1: Strict Environment Allowlisting
+    const allowedEnvs = ["development", "test", "demo", "local"];
+    const currentEnv = (process.env.NODE_ENV || "development").toLowerCase();
+    if (!allowedEnvs.includes(currentEnv) || currentEnv === "production" || currentEnv === "prod" || currentEnv === "staging") {
+      console.error(
+        `[SEED-ACADEMIC] ✗ Execution aborted: NODE_ENV='${process.env.NODE_ENV}' is not an allowlisted development/test environment. Allowlist: ${allowedEnvs.join(", ")}`,
+      );
       process.exit(1);
     }
 
@@ -76,6 +81,32 @@ async function seedAcademicDemo() {
 
     if (!dbConfig.user || !dbConfig.database) {
       throw new Error("Missing mandatory DB_USER or DB_NAME in environment.");
+    }
+
+    // Safety Check 2: Database Name Inspection
+    const dbName = String(dbConfig.database || "").toLowerCase();
+    if (dbName.includes("prod") || dbName.includes("production") || dbName.includes("live")) {
+      console.error(
+        `[SEED-ACADEMIC] ✗ Execution aborted: Target database '${dbConfig.database}' appears to be a production database. Refusing destructive operations.`,
+      );
+      process.exit(1);
+    }
+
+    // Safety Check 3: Explicit Destructive Reset Confirmation
+    if (shouldReset) {
+      const isExplicitlyConfirmed =
+        args.includes("--confirm-destructive-reset") ||
+        args.includes("--confirm") ||
+        process.env.CONFIRM_ACADEMIC_RESET === "true" ||
+        process.env.CONFIRM_ACADEMIC_RESET === "yes";
+
+      if (!isExplicitlyConfirmed) {
+        console.error(
+          "[SEED-ACADEMIC] ✗ Refusing destructive reset without explicit confirmation.\n" +
+          "[SEED-ACADEMIC] To reset and re-seed demo tables, pass `--confirm-destructive-reset` or set `CONFIRM_ACADEMIC_RESET=true`.",
+        );
+        process.exit(1);
+      }
     }
 
     connection = await mysql.createConnection(dbConfig);
@@ -810,4 +841,8 @@ async function seedAcademicDemo() {
   }
 }
 
-seedAcademicDemo();
+if (require.main === module) {
+  seedAcademicDemo();
+}
+
+module.exports = { seedAcademicDemo };

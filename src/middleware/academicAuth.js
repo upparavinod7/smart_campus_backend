@@ -11,10 +11,15 @@ const pool = require("../config/mysql");
  */
 async function resolveSubjectId(req) {
   if (req.params.subjectId) return parseInt(req.params.subjectId, 10);
-  if (req.baseUrl.endsWith("/subjects") && req.params.id) return parseInt(req.params.id, 10);
   if (req.body && req.body.subject_id) return parseInt(req.body.subject_id, 10);
 
-  const topicId = req.params.topicId || (req.baseUrl.includes("/topics") && req.params.id);
+  const fullPath = (req.baseUrl || "") + (req.path || "") + (req.originalUrl || "");
+
+  if ((fullPath.includes("/subjects/") || fullPath.endsWith("/subjects")) && req.params.id) {
+    return parseInt(req.params.id, 10);
+  }
+
+  const topicId = req.params.topicId || (fullPath.includes("/topics/") && req.params.id);
   if (topicId) {
     const [rows] = await pool.query(
       "SELECT subject_id FROM academic_topics WHERE topic_id = ?",
@@ -23,7 +28,7 @@ async function resolveSubjectId(req) {
     if (rows.length > 0) return rows[0].subject_id;
   }
 
-  const materialId = req.params.materialId || (req.baseUrl.includes("/materials") && req.params.id);
+  const materialId = req.params.materialId || (fullPath.includes("/materials/") && req.params.id);
   if (materialId) {
     const [rows] = await pool.query(
       `SELECT t.subject_id 
@@ -35,7 +40,7 @@ async function resolveSubjectId(req) {
     if (rows.length > 0) return rows[0].subject_id;
   }
 
-  const quizId = req.params.quizId || (req.baseUrl.includes("/quizzes") && req.params.id);
+  const quizId = req.params.quizId || (fullPath.includes("/quizzes/") && req.params.id);
   if (quizId) {
     const [rows] = await pool.query(
       `SELECT t.subject_id 
@@ -47,7 +52,7 @@ async function resolveSubjectId(req) {
     if (rows.length > 0) return rows[0].subject_id;
   }
 
-  const attemptId = req.params.attemptId || (req.baseUrl.includes("/attempts") && req.params.id);
+  const attemptId = req.params.attemptId || (fullPath.includes("/attempts/") && req.params.id);
   if (attemptId) {
     const [rows] = await pool.query(
       `SELECT t.subject_id 
@@ -60,7 +65,7 @@ async function resolveSubjectId(req) {
     if (rows.length > 0) return rows[0].subject_id;
   }
 
-  const questionId = req.params.questionId || (req.baseUrl.includes("/questions") && req.params.id);
+  const questionId = req.params.questionId || (fullPath.includes("/questions/") && req.params.id);
   if (questionId) {
     const [rows] = await pool.query(
       `SELECT t.subject_id 
@@ -68,6 +73,18 @@ async function resolveSubjectId(req) {
        JOIN academic_topics t ON q.topic_id = t.topic_id
        WHERE q.question_id = ?`,
       [questionId],
+    );
+    if (rows.length > 0) return rows[0].subject_id;
+  }
+
+  const jobId = req.params.jobId || (fullPath.includes("/jobs/") && req.params.id);
+  if (jobId) {
+    const [rows] = await pool.query(
+      `SELECT t.subject_id 
+       FROM academic_ml_jobs j
+       JOIN academic_topics t ON j.topic_id = t.topic_id
+       WHERE j.job_id = ?`,
+      [jobId],
     );
     if (rows.length > 0) return rows[0].subject_id;
   }
@@ -107,16 +124,22 @@ async function isFacultyAuthorizedForSubject(facultyId, subjectId) {
   );
   if (slotRows.length > 0) return true;
 
-  // 4. Department HOD / Department peer assignment
-  const [deptRows] = await pool.query(
+  // 4. Department HOD (only authenticated Head of Department has department-wide scope)
+  const [hodRows] = await pool.query(
     `SELECT 1 
      FROM subjects sub
      JOIN faculty f ON sub.owner_department_id = f.department_id
+     LEFT JOIN designations des ON f.designation_id = des.designation_id
      WHERE sub.subject_id = ? AND f.faculty_id = ? AND f.is_active = 1
+       AND (
+         des.name LIKE '%Head of Department%' OR 
+         des.name LIKE '%HOD%' OR 
+         f.employee_code LIKE '%HOD%'
+       )
      LIMIT 1`,
     [subjectId, facultyId],
   );
-  if (deptRows.length > 0) return true;
+  if (hodRows.length > 0) return true;
 
   return false;
 }
