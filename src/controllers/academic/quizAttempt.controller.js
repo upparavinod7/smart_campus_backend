@@ -664,6 +664,41 @@ async function submitQuizAttempt(req, res) {
           isCorrect = true;
           marksAwarded = marksForQ;
           totalScore += marksAwarded;
+        } else if (q.options) {
+          // If options is an array of objects or strings, resolve key/text equivalence
+          let opts = q.options;
+          if (typeof opts === "string") {
+            try {
+              opts = JSON.parse(opts);
+            } catch (e) {
+              opts = [];
+            }
+          }
+          if (Array.isArray(opts)) {
+            for (let i = 0; i < opts.length; i++) {
+              const opt = opts[i];
+              const defaultKey = String.fromCharCode(65 + i).toLowerCase();
+              let optKey = defaultKey;
+              let optText = "";
+              if (typeof opt === "object" && opt !== null) {
+                optKey = String(opt.key || defaultKey).trim().toLowerCase();
+                optText = String(opt.text || opt.label || "").trim().toLowerCase();
+              } else {
+                optText = String(opt ?? "").trim().toLowerCase();
+              }
+
+              // Check if one matches key and the other matches text
+              if (
+                (studentText === optKey && correctText === optText) ||
+                (studentText === optText && correctText === optKey)
+              ) {
+                isCorrect = true;
+                marksAwarded = marksForQ;
+                totalScore += marksAwarded;
+                break;
+              }
+            }
+          }
         }
       }
 
