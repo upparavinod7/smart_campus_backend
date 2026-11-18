@@ -221,8 +221,15 @@ async function createQuestion(req, res) {
   try {
     const topicId = req.params.id;
     const user = req.user;
+    const rawType = req.body.type || "MCQ";
+    let type = "MCQ";
+    if (rawType === "TrueFalse" || rawType === "True/False") {
+      type = "TrueFalse";
+    } else if (rawType === "ShortAnswer" || rawType === "Short Answer") {
+      type = "ShortAnswer";
+    }
+
     const {
-      type = "MCQ",
       text,
       options,
       answer,
@@ -234,7 +241,7 @@ async function createQuestion(req, res) {
       status = "Approved",
     } = req.body;
 
-    const resolvedAnswer =
+    let resolvedAnswer =
       answer !== undefined && String(answer).trim() !== ""
         ? String(answer).trim()
         : req.body.correct_answer !== undefined && String(req.body.correct_answer).trim() !== ""
@@ -243,12 +250,20 @@ async function createQuestion(req, res) {
         ? String(req.body.correct_option).trim()
         : null;
 
+    if (type === "TrueFalse" && resolvedAnswer) {
+      if (/^true$/i.test(resolvedAnswer) || resolvedAnswer === "1") {
+        resolvedAnswer = "True";
+      } else if (/^false$/i.test(resolvedAnswer) || resolvedAnswer === "0") {
+        resolvedAnswer = "False";
+      }
+    }
+
     if (!text || !text.trim()) {
       return res.status(400).json({ success: false, message: "Question text is required" });
     }
 
     if (!resolvedAnswer) {
-      return res.status(400).json({ success: false, message: "Question correct answer is required" });
+      return res.status(400).json({ success: false, message: "Question correct answer is required. Please select or provide the correct answer." });
     }
 
     let parsedOptions = options;
@@ -269,6 +284,8 @@ async function createQuestion(req, res) {
       }
     } else if (type === "TrueFalse") {
       parsedOptions = ["True", "False"];
+    } else if (type === "ShortAnswer") {
+      parsedOptions = [];
     }
 
     const [result] = await pool.query(
@@ -357,13 +374,26 @@ async function updateQuestion(req, res) {
   try {
     const questionId = req.params.id;
     const user = req.user;
-    const { type, text, options, answer, explanation, marks, difficulty, source_ref, status } = req.body;
-    const resolvedAnswer =
+    const { type: rawType, text, options, answer, explanation, marks, difficulty, source_ref, status } = req.body;
+    let type = rawType;
+    if (type !== undefined) {
+      if (type === "TrueFalse" || type === "True/False") type = "TrueFalse";
+      else if (type === "ShortAnswer" || type === "Short Answer") type = "ShortAnswer";
+      else type = "MCQ";
+    }
+
+    let resolvedAnswer =
       answer !== undefined
         ? answer
         : req.body.correct_answer !== undefined
         ? req.body.correct_answer
         : req.body.correct_option;
+
+    if (type === "TrueFalse" && resolvedAnswer !== undefined) {
+      const s = String(resolvedAnswer).trim();
+      if (/^true$/i.test(s) || s === "1") resolvedAnswer = "True";
+      else if (/^false$/i.test(s) || s === "0") resolvedAnswer = "False";
+    }
 
     const [existing] = await pool.query("SELECT * FROM academic_questions WHERE question_id = ?", [questionId]);
     if (existing.length === 0) {

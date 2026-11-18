@@ -664,7 +664,7 @@ CREATE TABLE IF NOT EXISTS `subject_staff_assignments` (
   `assignment_id` int unsigned NOT NULL AUTO_INCREMENT,
   `subject_id` int unsigned NOT NULL,
   `faculty_id` int unsigned NOT NULL,
-  `role` enum('Subject Staff','Co-Teacher','Lab Assistant') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Subject Staff',
+  `role` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Subject Staff',
   `assigned_by` int unsigned DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

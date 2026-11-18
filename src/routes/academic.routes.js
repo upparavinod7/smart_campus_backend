@@ -165,6 +165,11 @@ router.get(
   authenticateDownloadAccess,
   materialCtrl.downloadMaterial,
 );
+router.get(
+  "/materials/:id/view",
+  authenticateDownloadAccess,
+  materialCtrl.downloadMaterial,
+);
 
 // ==========================================
 // 3. Quiz Authoring & Question Bank

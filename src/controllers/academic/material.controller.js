@@ -696,8 +696,10 @@ async function downloadMaterial(req, res) {
       payload: { materialId, file_name: path.basename(resolvedPath) },
     });
 
+    const isInline = req.path.endsWith("/view") || req.query.disposition === "inline";
+    const dispositionType = isInline ? "inline" : "attachment";
     const filename = `${mat.title.replace(/[^a-zA-Z0-9_-]/g, "_")}${path.extname(resolvedPath)}`;
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Disposition", `${dispositionType}; filename="${filename}"`);
     res.setHeader("Content-Type", mat.mime_type || "application/octet-stream");
 
     const stream = fs.createReadStream(resolvedPath);
