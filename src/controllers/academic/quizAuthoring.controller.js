@@ -44,6 +44,102 @@ async function getTopicQuiz(req, res) {
   }
 }
 
+function formatMySqlDatetime(val) {
+  if (!val) return null;
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/**
+ * POST /api/v1/academic/topics/:id/quiz
+ */
+async function createTopicQuiz(req, res) {
+  try {
+    const topicId = req.params.id;
+    const user = req.user;
+    const {
+      title,
+      description,
+      time_limit,
+      duration_minutes,
+      pass_mark,
+      pass_percentage,
+      max_attempts,
+      questions_to_draw,
+      open_at,
+      close_at,
+      available_from,
+      due_date,
+      start_datetime,
+      end_datetime,
+      status,
+      shuffle_questions,
+      shuffle_options,
+      show_explanation,
+    } = req.body;
+
+    const [topicRows] = await pool.query("SELECT * FROM academic_topics WHERE topic_id = ?", [topicId]);
+    if (topicRows.length === 0) {
+      return res.status(404).json({ success: false, message: "Course unit (Topic) not found" });
+    }
+
+    const quizTitle = title ? title.trim() : `${topicRows[0].title.trim()} Quiz`;
+    const openTime = formatMySqlDatetime(open_at || available_from || start_datetime);
+    const closeTime = formatMySqlDatetime(close_at || due_date || end_datetime);
+    const resolvedTimeLimit = time_limit !== undefined ? time_limit : duration_minutes;
+    const resolvedPassMark = pass_mark !== undefined ? pass_mark : pass_percentage;
+
+    const [result] = await pool.query(
+      `INSERT INTO academic_quizzes (
+        topic_id, title, description, time_limit, pass_mark, max_attempts,
+        questions_to_draw, open_at, close_at, status, shuffle_questions,
+        shuffle_options, show_explanation, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        title = VALUES(title),
+        description = VALUES(description),
+        time_limit = VALUES(time_limit),
+        pass_mark = VALUES(pass_mark),
+        max_attempts = VALUES(max_attempts),
+        questions_to_draw = VALUES(questions_to_draw),
+        open_at = VALUES(open_at),
+        close_at = VALUES(close_at),
+        status = VALUES(status),
+        shuffle_questions = VALUES(shuffle_questions),
+        shuffle_options = VALUES(shuffle_options),
+        show_explanation = VALUES(show_explanation),
+        updated_at = NOW()`,
+      [
+        topicId,
+        quizTitle,
+        description || null,
+        resolvedTimeLimit !== undefined ? Math.max(0, parseInt(resolvedTimeLimit, 10)) : 30,
+        resolvedPassMark !== undefined ? parseFloat(resolvedPassMark) : 50,
+        max_attempts !== undefined ? Math.max(1, parseInt(max_attempts, 10)) : 3,
+        questions_to_draw !== undefined && questions_to_draw !== null && questions_to_draw !== "" ? Math.max(1, parseInt(questions_to_draw, 10)) : null,
+        openTime,
+        closeTime,
+        status || "Draft",
+        shuffle_questions ? 1 : 0,
+        shuffle_options ? 1 : 0,
+        show_explanation ? 1 : 0,
+        user.user_id,
+      ]
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Quiz created successfully for course unit",
+      data: { quiz_id: result.insertId || result.insertId, topic_id: Number(topicId) },
+    });
+  } catch (err) {
+    console.error("[AcademicQuiz] createTopicQuiz error:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
 /**
  * PUT /api/v1/academic/topics/:id/quiz
  */
@@ -55,20 +151,64 @@ async function updateTopicQuiz(req, res) {
       title,
       description,
       time_limit,
+      duration_minutes,
       pass_mark,
+      pass_percentage,
       max_attempts,
       questions_to_draw,
       open_at,
       close_at,
+      available_from,
+      due_date,
+      start_datetime,
+      end_datetime,
       status,
       shuffle_questions,
       shuffle_options,
       show_explanation,
     } = req.body;
 
+    const resolvedTimeLimit = time_limit !== undefined ? time_limit : duration_minutes;
+    const resolvedPassMark = pass_mark !== undefined ? pass_mark : pass_percentage;
+    const openTime = formatMySqlDatetime(open_at || available_from || start_datetime);
+    const closeTime = formatMySqlDatetime(close_at || due_date || end_datetime);
+
     const [existing] = await pool.query("SELECT * FROM academic_quizzes WHERE topic_id = ?", [topicId]);
     if (existing.length === 0) {
-      return res.status(404).json({ success: false, message: "Quiz not found for this topic" });
+      // Upsert/create if missing
+      const [topicRows] = await pool.query("SELECT * FROM academic_topics WHERE topic_id = ?", [topicId]);
+      if (topicRows.length === 0) {
+        return res.status(404).json({ success: false, message: "Quiz and Topic not found" });
+      }
+      const quizTitle = title ? title.trim() : `${topicRows[0].title.trim()} Quiz`;
+      const [ins] = await pool.query(
+        `INSERT INTO academic_quizzes (
+          topic_id, title, description, time_limit, pass_mark, max_attempts,
+          questions_to_draw, open_at, close_at, status, shuffle_questions,
+          shuffle_options, show_explanation, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          topicId,
+          quizTitle,
+          description || null,
+          resolvedTimeLimit !== undefined ? Math.max(0, parseInt(resolvedTimeLimit, 10)) : 30,
+          resolvedPassMark !== undefined ? parseFloat(resolvedPassMark) : 50,
+          max_attempts !== undefined ? Math.max(1, parseInt(max_attempts, 10)) : 3,
+          questions_to_draw !== undefined && questions_to_draw !== null && questions_to_draw !== "" ? Math.max(1, parseInt(questions_to_draw, 10)) : null,
+          openTime,
+          closeTime,
+          status || "Draft",
+          shuffle_questions ? 1 : 0,
+          shuffle_options ? 1 : 0,
+          show_explanation ? 1 : 0,
+          user.user_id,
+        ]
+      );
+      return res.status(201).json({
+        success: true,
+        message: "Quiz created successfully",
+        data: { quiz_id: ins.insertId, topic_id: Number(topicId) },
+      });
     }
 
     const currentQuiz = existing[0];
@@ -118,13 +258,15 @@ async function updateTopicQuiz(req, res) {
       updates.push("questions_to_draw = ?");
       params.push(questions_to_draw === null || questions_to_draw === "" ? null : Math.max(1, parseInt(questions_to_draw, 10)));
     }
-    if (open_at !== undefined) {
+    const openVal = open_at !== undefined ? open_at : available_from;
+    if (openVal !== undefined) {
       updates.push("open_at = ?");
-      params.push(open_at || null);
+      params.push(formatMySqlDatetime(openVal));
     }
-    if (close_at !== undefined) {
+    const closeVal = close_at !== undefined ? close_at : due_date;
+    if (closeVal !== undefined) {
       updates.push("close_at = ?");
-      params.push(close_at || null);
+      params.push(formatMySqlDatetime(closeVal));
     }
     if (status !== undefined) {
       updates.push("status = ?");
@@ -221,8 +363,15 @@ async function createQuestion(req, res) {
   try {
     const topicId = req.params.id;
     const user = req.user;
+    const rawType = req.body.type || "MCQ";
+    let type = "MCQ";
+    if (rawType === "TrueFalse" || rawType === "True/False") {
+      type = "TrueFalse";
+    } else if (rawType === "ShortAnswer" || rawType === "Short Answer") {
+      type = "ShortAnswer";
+    }
+
     const {
-      type = "MCQ",
       text,
       options,
       answer,
@@ -234,7 +383,7 @@ async function createQuestion(req, res) {
       status = "Approved",
     } = req.body;
 
-    const resolvedAnswer =
+    let resolvedAnswer =
       answer !== undefined && String(answer).trim() !== ""
         ? String(answer).trim()
         : req.body.correct_answer !== undefined && String(req.body.correct_answer).trim() !== ""
@@ -243,12 +392,20 @@ async function createQuestion(req, res) {
         ? String(req.body.correct_option).trim()
         : null;
 
+    if (type === "TrueFalse" && resolvedAnswer) {
+      if (/^true$/i.test(resolvedAnswer) || resolvedAnswer === "1") {
+        resolvedAnswer = "True";
+      } else if (/^false$/i.test(resolvedAnswer) || resolvedAnswer === "0") {
+        resolvedAnswer = "False";
+      }
+    }
+
     if (!text || !text.trim()) {
       return res.status(400).json({ success: false, message: "Question text is required" });
     }
 
     if (!resolvedAnswer) {
-      return res.status(400).json({ success: false, message: "Question correct answer is required" });
+      return res.status(400).json({ success: false, message: "Question correct answer is required. Please select or provide the correct answer." });
     }
 
     let parsedOptions = options;
@@ -269,6 +426,8 @@ async function createQuestion(req, res) {
       }
     } else if (type === "TrueFalse") {
       parsedOptions = ["True", "False"];
+    } else if (type === "ShortAnswer") {
+      parsedOptions = [];
     }
 
     const [result] = await pool.query(
@@ -357,13 +516,26 @@ async function updateQuestion(req, res) {
   try {
     const questionId = req.params.id;
     const user = req.user;
-    const { type, text, options, answer, explanation, marks, difficulty, source_ref, status } = req.body;
-    const resolvedAnswer =
+    const { type: rawType, text, options, answer, explanation, marks, difficulty, source_ref, status } = req.body;
+    let type = rawType;
+    if (type !== undefined) {
+      if (type === "TrueFalse" || type === "True/False") type = "TrueFalse";
+      else if (type === "ShortAnswer" || type === "Short Answer") type = "ShortAnswer";
+      else type = "MCQ";
+    }
+
+    let resolvedAnswer =
       answer !== undefined
         ? answer
         : req.body.correct_answer !== undefined
         ? req.body.correct_answer
         : req.body.correct_option;
+
+    if (type === "TrueFalse" && resolvedAnswer !== undefined) {
+      const s = String(resolvedAnswer).trim();
+      if (/^true$/i.test(s) || s === "1") resolvedAnswer = "True";
+      else if (/^false$/i.test(s) || s === "0") resolvedAnswer = "False";
+    }
 
     const [existing] = await pool.query("SELECT * FROM academic_questions WHERE question_id = ?", [questionId]);
     if (existing.length === 0) {
@@ -727,6 +899,7 @@ async function getJobStatus(req, res) {
 
 module.exports = {
   getTopicQuiz,
+  createTopicQuiz,
   updateTopicQuiz,
   getTopicQuestions,
   createQuestion,

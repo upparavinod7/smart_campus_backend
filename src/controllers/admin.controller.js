@@ -67,17 +67,63 @@ const getDashboardStats = async (req, res) => {
 const getAttendanceReport = async (req, res) => {
   try {
     const {
-      term_id,
-      semester,
-      academic_year_id,
+      school_id,
       department_id,
       programme_id,
       batch_id,
       section_id,
       subject_id,
+      faculty_id,
+      term_id,
+      semester,
+      academic_year_id,
       start_date,
       end_date,
     } = req.query;
+
+    let enforcedDepartmentId = department_id;
+
+    // HOD Scoping & Cross-Department Isolation
+    if (req.user && req.user.role === "FACULTY") {
+      const [facRows] = await pool.query(
+        `SELECT f.faculty_id, f.department_id, d.name AS designation_name, f.employee_code
+         FROM faculty f
+         LEFT JOIN designations d ON f.designation_id = d.designation_id
+         WHERE f.faculty_id = ? OR f.email = ? LIMIT 1`,
+        [req.user.faculty_id || 0, req.user.email || ""]
+      );
+
+      if (facRows.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Faculty profile not found.",
+        });
+      }
+
+      const fac = facRows[0];
+      const isHOD = Boolean(
+        (fac.designation_name && (fac.designation_name.includes("Head of Department") || fac.designation_name.includes("HOD"))) ||
+        (fac.employee_code && fac.employee_code.toUpperCase().includes("HOD")) ||
+        (req.user.username && req.user.username.toUpperCase().includes("HOD"))
+      );
+
+      if (!isHOD) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Only Administrators and Department Heads are authorized to view institutional attendance reports.",
+        });
+      }
+
+      // If HOD explicitly requested another department, reject with 403
+      if (department_id && Number(department_id) !== Number(fac.department_id)) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. HOD is only authorized to view attendance records for their own department.",
+        });
+      }
+
+      enforcedDepartmentId = fac.department_id;
+    }
 
     const effectiveTermId = term_id || semester;
     const conditions = [];
@@ -113,9 +159,19 @@ const getAttendanceReport = async (req, res) => {
       params.push(Number(programme_id));
     }
 
-    if (department_id) {
+    if (school_id) {
+      conditions.push("p.school_id = ?");
+      params.push(Number(school_id));
+    }
+
+    if (faculty_id) {
+      conditions.push("(cs.faculty_id = ? OR ts.faculty_id = ?)");
+      params.push(Number(faculty_id), Number(faculty_id));
+    }
+
+    if (enforcedDepartmentId) {
       conditions.push("p.department_id = ?");
-      params.push(Number(department_id));
+      params.push(Number(enforcedDepartmentId));
     }
 
     if (start_date) {
@@ -180,11 +236,22 @@ const getAttendanceReport = async (req, res) => {
           ay.label AS academic_year_label,
           bt.label AS batch_label,
           p.name AS programme_name,
+          (
+            SELECT COUNT(DISTINCT e.student_id)
+            FROM enrollments e
+            WHERE e.section_id = sec.section_id AND e.status = 'REGISTERED'
+          ) AS total_enrolled,
           COUNT(DISTINCT cs.session_id) AS total_sessions,
           COUNT(DISTINCT CASE WHEN cs.status = 'CLOSED' THEN cs.session_id END) AS completed_sessions,
           COUNT(DISTINCT ar.attendance_id) AS total_marked,
+          COUNT(DISTINCT CASE WHEN ar.status = 'PRESENT' THEN ar.attendance_id END) AS present_count,
+          COUNT(DISTINCT CASE WHEN ar.status = 'LATE' THEN ar.attendance_id END) AS late_count,
           COUNT(DISTINCT CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN ar.attendance_id END) AS attended_count,
           COUNT(DISTINCT CASE WHEN ar.status = 'ABSENT' THEN ar.attendance_id END) AS absent_count,
+          GREATEST(
+            0,
+            ((SELECT COUNT(DISTINCT e.student_id) FROM enrollments e WHERE e.section_id = sec.section_id AND e.status = 'REGISTERED') * COUNT(DISTINCT CASE WHEN cs.status = 'CLOSED' THEN cs.session_id END)) - COUNT(DISTINCT ar.attendance_id)
+          ) AS unmarked_count,
           ROUND(
             100.0 * COUNT(DISTINCT CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN ar.attendance_id END)
             / NULLIF(COUNT(DISTINCT ar.attendance_id), 0),
@@ -207,6 +274,60 @@ const getAttendanceReport = async (req, res) => {
       params,
     );
 
+    // 3. Session Breakdown
+    const [sessionRows] = await pool.query(
+      `
+      SELECT
+          cs.session_id,
+          cs.session_date,
+          cs.scheduled_start,
+          cs.scheduled_end,
+          cs.status AS session_status,
+          sec.section_id,
+          sec.section_code,
+          sub.subject_code,
+          sub.name AS subject_name,
+          f.faculty_id,
+          f.full_name AS faculty_name,
+          c.room_no,
+          (
+            SELECT COUNT(DISTINCT e.student_id)
+            FROM enrollments e
+            WHERE e.section_id = sec.section_id AND e.status = 'REGISTERED'
+          ) AS total_enrolled,
+          COUNT(DISTINCT CASE WHEN ar.status = 'PRESENT' THEN ar.attendance_id END) AS present_count,
+          COUNT(DISTINCT CASE WHEN ar.status = 'LATE' THEN ar.attendance_id END) AS late_count,
+          COUNT(DISTINCT CASE WHEN ar.status = 'ABSENT' THEN ar.attendance_id END) AS absent_count,
+          COUNT(DISTINCT ar.attendance_id) AS total_marked,
+          GREATEST(
+            0,
+            (SELECT COUNT(DISTINCT e.student_id) FROM enrollments e WHERE e.section_id = sec.section_id AND e.status = 'REGISTERED') - COUNT(DISTINCT ar.attendance_id)
+          ) AS unmarked_count,
+          ROUND(
+            100.0 * COUNT(DISTINCT CASE WHEN ar.status IN ('PRESENT', 'LATE') THEN ar.attendance_id END)
+            / NULLIF(COUNT(DISTINCT ar.attendance_id), 0),
+            2
+          ) AS attendance_percentage
+      FROM class_sessions cs
+      JOIN timetable_slots ts ON cs.slot_id = ts.slot_id
+      JOIN sections sec ON ts.section_id = sec.section_id
+      JOIN course_offerings co ON sec.offering_id = co.offering_id
+      JOIN subjects sub ON co.subject_id = sub.subject_id
+      JOIN academic_terms at ON co.term_id = at.term_id
+      JOIN academic_years ay ON at.academic_year_id = ay.academic_year_id
+      LEFT JOIN batches bt ON sec.batch_id = bt.batch_id
+      LEFT JOIN programmes p ON bt.programme_id = p.programme_id
+      LEFT JOIN faculty f ON cs.faculty_id = f.faculty_id
+      LEFT JOIN classrooms c ON cs.classroom_id = c.classroom_id
+      LEFT JOIN attendance_records ar ON ar.session_id = cs.session_id
+      ${whereClause}
+      GROUP BY cs.session_id, cs.session_date, cs.scheduled_start, cs.scheduled_end, cs.status, sec.section_id, sec.section_code, sub.subject_code, sub.name, f.faculty_id, f.full_name, c.room_no
+      ORDER BY cs.session_date DESC, cs.session_id DESC
+      LIMIT 100
+      `,
+      params,
+    );
+
     return res.status(200).json({
       success: true,
       message: "Attendance report retrieved successfully",
@@ -224,13 +345,29 @@ const getAttendanceReport = async (req, res) => {
         },
         sections_breakdown: breakdownRows.map((r) => ({
           ...r,
+          total_enrolled: Number(r.total_enrolled || 0),
           total_sessions: Number(r.total_sessions),
           completed_sessions: Number(r.completed_sessions),
           total_marked: Number(r.total_marked),
+          present_count: Number(r.present_count || 0),
+          late_count: Number(r.late_count || 0),
           attended_count: Number(r.attended_count),
           absent_count: Number(r.absent_count),
+          unmarked_count: Number(r.unmarked_count || 0),
           section_attendance_percentage: r.section_attendance_percentage !== null
             ? Number(r.section_attendance_percentage)
+            : null,
+        })),
+        sessions_breakdown: sessionRows.map((r) => ({
+          ...r,
+          total_enrolled: Number(r.total_enrolled || 0),
+          present_count: Number(r.present_count || 0),
+          late_count: Number(r.late_count || 0),
+          absent_count: Number(r.absent_count || 0),
+          total_marked: Number(r.total_marked || 0),
+          unmarked_count: Number(r.unmarked_count || 0),
+          attendance_percentage: r.attendance_percentage !== null
+            ? Number(r.attendance_percentage)
             : null,
         })),
       },

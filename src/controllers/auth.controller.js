@@ -211,7 +211,7 @@ const getMe = async (req, res) => {
         username,
         full_name,
         gender,
-        date_of_birth,
+        DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth,
         blood_group,
         joining_year,
         employee_id,
@@ -274,7 +274,7 @@ const getProfile = async (req, res) => {
         username,
         full_name,
         gender,
-        date_of_birth,
+        DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth,
         blood_group,
         joining_year,
         employee_id,
@@ -323,7 +323,7 @@ const getProfile = async (req, res) => {
           s.register_no,
           s.full_name,
           s.gender,
-          s.date_of_birth,
+          DATE_FORMAT(s.date_of_birth, '%Y-%m-%d') AS date_of_birth,
           s.blood_group,
           s.email,
           s.phone,
@@ -387,7 +387,7 @@ const getProfile = async (req, res) => {
           f.employee_code,
           f.full_name,
           f.gender,
-          f.date_of_birth,
+          DATE_FORMAT(f.date_of_birth, '%Y-%m-%d') AS date_of_birth,
           f.blood_group,
           f.joining_year,
           f.in_charge_class,
@@ -564,8 +564,23 @@ const updateProfile = async (req, res) => {
     }
 
     if (resolvedDob !== undefined) {
+      let formattedDob = null;
+      if (resolvedDob) {
+        const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(resolvedDob).trim());
+        if (match) {
+          formattedDob = match[1];
+        } else {
+          const d = new Date(resolvedDob);
+          if (!isNaN(d.getTime())) {
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, "0");
+            const dd = String(d.getDate()).padStart(2, "0");
+            formattedDob = `${yyyy}-${mm}-${dd}`;
+          }
+        }
+      }
       updates.push("date_of_birth = ?");
-      values.push(resolvedDob || null);
+      values.push(formattedDob);
     }
 
     if (resolvedBloodGroup !== undefined) {
@@ -610,7 +625,7 @@ const updateProfile = async (req, res) => {
         username,
         full_name,
         gender,
-        date_of_birth,
+        DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS date_of_birth,
         blood_group,
         joining_year,
         employee_id,
@@ -648,19 +663,7 @@ const updateProfile = async (req, res) => {
       },
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Admin profile updated successfully.",
-      data: {
-        user_id: updatedUser.user_id,
-        username: updatedUser.username,
-        name: updatedUser.full_name || updatedUser.username,
-        full_name: updatedUser.full_name || updatedUser.username,
-        email: updatedUser.email,
-        role: updatedUser.role,
-        is_active: updatedUser.is_active,
-      },
-    });
+
   } catch (error) {
     console.error("Update profile error:", error);
     return res.status(500).json({

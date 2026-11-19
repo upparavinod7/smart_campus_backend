@@ -438,6 +438,191 @@ const getTimetableSlotById = async (req, res) => {
 };
 
 /**
+ * Automatically schedule class sessions for a timetable slot.
+ * Ensures:
+ * - Idempotency (no duplicate sessions)
+ * - Historical CLOSED sessions and attendance records are never overwritten or deleted
+ * - Future SCHEDULED sessions synchronize with slot updates (room, faculty, time)
+ * - If slot is deactivated, future SCHEDULED sessions are set to CANCELLED
+ */
+const autoScheduleSessionsForSlot = async (slotId, connection = pool) => {
+  const [slotRows] = await connection.query(
+    `
+    SELECT
+        ts.slot_id,
+        ts.section_id,
+        ts.faculty_id,
+        ts.classroom_id,
+        ts.day_of_week,
+        ts.start_time,
+        ts.end_time,
+        ts.effective_from,
+        ts.effective_to,
+        ts.is_active,
+        at.start_date AS term_start,
+        at.end_date AS term_end
+    FROM timetable_slots ts
+    JOIN sections sec ON ts.section_id = sec.section_id
+    JOIN course_offerings co ON sec.offering_id = co.offering_id
+    JOIN academic_terms at ON co.term_id = at.term_id
+    WHERE ts.slot_id = ?
+    LIMIT 1
+    `,
+    [slotId]
+  );
+
+  if (slotRows.length === 0) return { scheduled: 0, updated: 0, cancelled: 0 };
+  const slot = slotRows[0];
+
+  // If slot is inactive, cancel uncompleted future scheduled sessions
+  if (!slot.is_active) {
+    const [cancelRes] = await connection.query(
+      `
+      UPDATE class_sessions
+      SET status = 'CANCELLED',
+          cancel_reason = 'Timetable slot deactivated',
+          updated_at = NOW()
+      WHERE slot_id = ?
+        AND status = 'SCHEDULED'
+        AND session_id NOT IN (SELECT DISTINCT session_id FROM attendance_records)
+      `,
+      [slotId]
+    );
+    return { scheduled: 0, updated: 0, cancelled: cancelRes.affectedRows || 0 };
+  }
+
+  // Determine scheduling date range
+  const formatDateStr = (d) => {
+    if (!d) return null;
+    if (typeof d === "string") return d.substring(0, 10);
+    const dateObj = new Date(d);
+    return !isNaN(dateObj.getTime()) ? dateObj.toISOString().substring(0, 10) : null;
+  };
+
+  const startStr = formatDateStr(slot.effective_from) || formatDateStr(slot.term_start) || "2026-06-01";
+  let endStr = formatDateStr(slot.effective_to) || formatDateStr(slot.term_end);
+
+  if (!endStr) {
+    const defaultEnd = new Date(startStr);
+    defaultEnd.setDate(defaultEnd.getDate() + 60);
+    endStr = defaultEnd.toISOString().substring(0, 10);
+  }
+
+  const startDate = new Date(`${startStr}T00:00:00Z`);
+  const endDate = new Date(`${endStr}T23:59:59Z`);
+
+  let scheduledCount = 0;
+  let updatedCount = 0;
+
+  const startTime = slot.start_time.length === 5 ? `${slot.start_time}:00` : slot.start_time;
+  const endTime = slot.end_time.length === 5 ? `${slot.end_time}:00` : slot.end_time;
+
+  const curDate = new Date(startDate);
+  while (curDate <= endDate) {
+    const jsDay = curDate.getUTCDay();
+    const dayOfWeek = jsDay === 0 ? 7 : jsDay;
+
+    if (dayOfWeek === Number(slot.day_of_week)) {
+      const dateYMD = curDate.toISOString().substring(0, 10);
+      const schedStart = `${dateYMD} ${startTime}`;
+      const schedEnd = `${dateYMD} ${endTime}`;
+
+      const startEpoch = new Date(`${dateYMD}T${startTime}Z`).getTime();
+      const pEpoch = new Date(startEpoch + 15 * 60 * 1000);
+      const lEpoch = new Date(startEpoch + 30 * 60 * 1000);
+      const presentUntil = `${dateYMD} ${String(pEpoch.getUTCHours()).padStart(2, "0")}:${String(pEpoch.getUTCMinutes()).padStart(2, "0")}:${String(pEpoch.getUTCSeconds()).padStart(2, "0")}`;
+      const lateUntil = `${dateYMD} ${String(lEpoch.getUTCHours()).padStart(2, "0")}:${String(lEpoch.getUTCMinutes()).padStart(2, "0")}:${String(lEpoch.getUTCSeconds()).padStart(2, "0")}`;
+
+      const [existing] = await connection.query(
+        "SELECT session_id, status FROM class_sessions WHERE slot_id = ? AND (scheduled_start = ? OR session_date = ?) LIMIT 1",
+        [slotId, schedStart, dateYMD]
+      );
+
+      if (existing.length > 0) {
+        const sess = existing[0];
+        if (sess.status === "SCHEDULED") {
+          await connection.query(
+            `
+            UPDATE class_sessions
+            SET faculty_id = ?,
+                classroom_id = ?,
+                scheduled_start = ?,
+                scheduled_end = ?,
+                present_until = ?,
+                late_until = ?,
+                updated_at = NOW()
+            WHERE session_id = ?
+            `,
+            [slot.faculty_id, slot.classroom_id, schedStart, schedEnd, presentUntil, lateUntil, sess.session_id]
+          );
+          updatedCount++;
+        }
+      } else {
+        try {
+          await connection.query(
+            `
+            INSERT INTO class_sessions (
+                slot_id,
+                session_date,
+                faculty_id,
+                classroom_id,
+                scheduled_start,
+                scheduled_end,
+                present_until,
+                late_until,
+                status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED')
+            `,
+            [
+              slotId,
+              dateYMD,
+              slot.faculty_id,
+              slot.classroom_id,
+              schedStart,
+              schedEnd,
+              presentUntil,
+              lateUntil,
+            ]
+          );
+          scheduledCount++;
+        } catch (insertErr) {
+          if (insertErr.code !== "ER_DUP_ENTRY") {
+            throw insertErr;
+          }
+        }
+      }
+    }
+
+    curDate.setUTCDate(curDate.getUTCDate() + 1);
+  }
+
+  return { scheduled: scheduledCount, updated: updatedCount, cancelled: 0 };
+};
+
+/**
+ * POST /api/v1/timetable/slots/:id/sync-sessions
+ * Manually trigger auto-scheduling for a timetable slot.
+ */
+const syncSlotSessions = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await autoScheduleSessionsForSlot(id);
+    return res.status(200).json({
+      success: true,
+      message: `Synchronized class sessions for slot #${id}`,
+      data: result,
+    });
+  } catch (err) {
+    console.error("Sync slot sessions error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error during session synchronization",
+    });
+  }
+};
+
+/**
  * POST /api/v1/timetable
  * Create a new timetable slot with schedule conflict detection. ADMIN only.
  */
@@ -687,6 +872,13 @@ const createTimetableSlot = async (req, res) => {
       `,
       [result.insertId],
     );
+
+    // Automatic Class Scheduling
+    try {
+      await autoScheduleSessionsForSlot(result.insertId);
+    } catch (schedErr) {
+      console.error("Auto-scheduling warning for slot #" + result.insertId, schedErr);
+    }
 
     return res.status(201).json({
       success: true,
@@ -984,6 +1176,13 @@ const updateTimetableSlot = async (req, res) => {
       [id],
     );
 
+    // Synchronize Class Sessions
+    try {
+      await autoScheduleSessionsForSlot(id);
+    } catch (schedErr) {
+      console.error("Auto-scheduling update warning for slot #" + id, schedErr);
+    }
+
     return res.status(200).json({
       success: true,
       message: "Timetable slot updated successfully",
@@ -1031,6 +1230,13 @@ const deleteTimetableSlot = async (req, res) => {
       [id],
     );
 
+    // Synchronize Class Sessions (cancel future scheduled sessions)
+    try {
+      await autoScheduleSessionsForSlot(id);
+    } catch (schedErr) {
+      console.error("Auto-scheduling cancellation warning for slot #" + id, schedErr);
+    }
+
     return res.status(200).json({
       success: true,
       message: "Timetable slot deactivated successfully",
@@ -1055,4 +1261,6 @@ module.exports = {
   createTimetableSlot,
   updateTimetableSlot,
   deleteTimetableSlot,
+  autoScheduleSessionsForSlot,
+  syncSlotSessions,
 };

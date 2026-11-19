@@ -18,18 +18,18 @@ router.get(
 );
 
 // GET /api/v1/admin/reports/attendance & /api/v1/admin/attendance-report
-// Authorized roles: ADMIN
+// Authorized roles: ADMIN, FACULTY (HOD scoped)
 router.get(
   "/reports/attendance",
   authenticateToken,
-  authorizeRoles("ADMIN"),
+  authorizeRoles("ADMIN", "FACULTY"),
   getAttendanceReport,
 );
 
 router.get(
   "/attendance-report",
   authenticateToken,
-  authorizeRoles("ADMIN"),
+  authorizeRoles("ADMIN", "FACULTY"),
   getAttendanceReport,
 );
 

@@ -256,9 +256,17 @@ async function startQuizAttempt(req, res) {
           ? Math.max(0, Math.floor((new Date(active.expires_at) - new Date()) / 1000))
           : null;
 
-        const questionSet = typeof active.question_set === "string"
-          ? JSON.parse(active.question_set)
-          : active.question_set;
+        let questionSet = active.question_set;
+        if (typeof questionSet === "string") {
+          try {
+            questionSet = JSON.parse(questionSet);
+          } catch (e) {
+            questionSet = [];
+          }
+        }
+        if (!Array.isArray(questionSet)) {
+          questionSet = [];
+        }
 
         return res.status(200).json({
           success: true,
@@ -271,6 +279,7 @@ async function startQuizAttempt(req, res) {
             expires_at: active.expires_at,
             remaining_seconds: remainingSeconds,
             questions: questionSet,
+            question_set: questionSet,
           },
         });
       } else {
@@ -311,14 +320,13 @@ async function startQuizAttempt(req, res) {
 
     // Random Question Selection if questions_to_draw is configured (AC-QZ-05)
     if (quiz.questions_to_draw && quiz.questions_to_draw > 0) {
-      if (rawQuestions.length < quiz.questions_to_draw) {
+      if (quiz.questions_to_draw > rawQuestions.length) {
         return res.status(400).json({
           success: false,
           code: "INSUFFICIENT_QUESTIONS_IN_BANK",
-          message: `Cannot start quiz: question bank has only ${rawQuestions.length} approved question(s), but quiz requires ${quiz.questions_to_draw}.`,
+          message: `Quiz requires ${quiz.questions_to_draw} questions to be drawn, but only ${rawQuestions.length} approved questions exist in the bank.`,
         });
       }
-      // Shuffle bank and draw exactly questions_to_draw items
       const shuffledBank = shuffleArray(rawQuestions);
       questionsPool = shuffledBank.slice(0, quiz.questions_to_draw);
     }
@@ -428,8 +436,14 @@ async function getAttemptById(req, res) {
     if (typeof attempt.question_set === "string") {
       try {
         attempt.question_set = JSON.parse(attempt.question_set);
-      } catch (e) {}
+      } catch (e) {
+        attempt.question_set = [];
+      }
     }
+    if (!Array.isArray(attempt.question_set)) {
+      attempt.question_set = [];
+    }
+    attempt.questions = attempt.question_set;
 
     // Check timer expiration
     if (attempt.status === "IN_PROGRESS" && attempt.expires_at) {

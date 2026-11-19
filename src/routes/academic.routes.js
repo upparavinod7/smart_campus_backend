@@ -165,6 +165,11 @@ router.get(
   authenticateDownloadAccess,
   materialCtrl.downloadMaterial,
 );
+router.get(
+  "/materials/:id/view",
+  authenticateDownloadAccess,
+  materialCtrl.downloadMaterial,
+);
 
 // ==========================================
 // 3. Quiz Authoring & Question Bank
@@ -173,6 +178,12 @@ router.get(
   "/topics/:id/quiz",
   authenticateToken,
   quizAuthoringCtrl.getTopicQuiz,
+);
+router.post(
+  "/topics/:id/quiz",
+  authenticateToken,
+  requireAcademicPolicy("CONFIGURE_QUIZ"),
+  quizAuthoringCtrl.createTopicQuiz,
 );
 router.put(
   "/topics/:id/quiz",

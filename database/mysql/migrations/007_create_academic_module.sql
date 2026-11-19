@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS subject_staff_assignments (
   assignment_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   subject_id INT UNSIGNED NOT NULL,
   faculty_id INT UNSIGNED NOT NULL,
-  role ENUM('Subject Staff', 'Co-Teacher', 'Lab Assistant') NOT NULL DEFAULT 'Subject Staff',
+  role VARCHAR(50) NOT NULL DEFAULT 'Subject Staff',
   assigned_by INT UNSIGNED NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

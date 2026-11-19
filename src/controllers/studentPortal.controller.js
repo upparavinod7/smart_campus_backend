@@ -500,8 +500,7 @@ const getStudentDashboard = async (req, res) => {
 const getMyTimetable = async (req, res) => {
   try {
     const userId = req.user.user_id;
-    const { term_id, semester, academic_year_id, day_of_week } = req.query;
-    const effectiveTermId = term_id || semester;
+    const { term_id, semester, term_type, academic_year_id, day_of_week } = req.query;
 
     const conditions = [
       "u.user_id = ?",
@@ -512,9 +511,19 @@ const getMyTimetable = async (req, res) => {
     ];
     const params = [userId];
 
-    if (effectiveTermId) {
+    if (term_id) {
       conditions.push("co.term_id = ?");
-      params.push(Number(effectiveTermId));
+      params.push(Number(term_id));
+    }
+
+    if (term_type) {
+      conditions.push("at.term_type = ?");
+      params.push(String(term_type).toUpperCase());
+    }
+
+    if (semester) {
+      conditions.push("ps.semester_no = ?");
+      params.push(Number(semester));
     }
 
     if (academic_year_id) {
@@ -542,12 +551,16 @@ const getMyTimetable = async (req, res) => {
         sub.subject_id,
         sub.subject_code,
         sub.name AS subject_name,
+        sub.delivery_type,
 
         co.offering_id,
         co.term_id,
         at.term_type,
         at.academic_year_id,
         ay.label AS academic_year_label,
+
+        ps.semester_no AS semester,
+        ps.year_no AS year,
 
         sec.section_id,
         sec.section_code,
@@ -576,6 +589,12 @@ const getMyTimetable = async (req, res) => {
 
       LEFT JOIN subjects sub
         ON sub.subject_id = co.subject_id
+
+      LEFT JOIN (
+        SELECT subject_id, MIN(semester_no) AS semester_no, MIN(year_no) AS year_no
+        FROM programme_subjects
+        GROUP BY subject_id
+      ) ps ON co.subject_id = ps.subject_id
 
       JOIN timetable_slots ts
         ON ts.section_id = sec.section_id
@@ -614,8 +633,7 @@ const getMyTimetable = async (req, res) => {
 const getMyCourses = async (req, res) => {
   try {
     const userId = req.user.user_id;
-    const { term_id, semester, academic_year_id } = req.query;
-    const effectiveTermId = term_id || semester;
+    const { term_id, semester, term_type, academic_year_id } = req.query;
 
     const conditions = [
       "u.user_id = ?",
@@ -625,9 +643,19 @@ const getMyCourses = async (req, res) => {
     ];
     const params = [userId];
 
-    if (effectiveTermId) {
+    if (term_id) {
       conditions.push("co.term_id = ?");
-      params.push(Number(effectiveTermId));
+      params.push(Number(term_id));
+    }
+
+    if (term_type) {
+      conditions.push("at.term_type = ?");
+      params.push(String(term_type).toUpperCase());
+    }
+
+    if (semester) {
+      conditions.push("ps.semester_no = ?");
+      params.push(Number(semester));
     }
 
     if (academic_year_id) {
@@ -657,6 +685,9 @@ const getMyCourses = async (req, res) => {
         at.academic_year_id,
         ay.label AS academic_year_label,
 
+        ps.semester_no AS semester,
+        ps.year_no AS year,
+
         sec.section_id,
         sec.section_code
 
@@ -679,6 +710,12 @@ const getMyCourses = async (req, res) => {
 
       LEFT JOIN subjects sub
         ON sub.subject_id = co.subject_id
+
+      LEFT JOIN (
+        SELECT subject_id, MIN(semester_no) AS semester_no, MIN(year_no) AS year_no
+        FROM programme_subjects
+        GROUP BY subject_id
+      ) ps ON co.subject_id = ps.subject_id
 
       ${whereClause}
 
