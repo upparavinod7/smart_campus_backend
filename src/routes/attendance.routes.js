@@ -38,7 +38,7 @@ const { getAttendanceReport } = require("../controllers/admin.controller");
 router.get(
   "/report",
   authenticateToken,
-  authorizeRoles("ADMIN"),
+  authorizeRoles("ADMIN", "FACULTY"),
   getAttendanceReport,
 );
 

@@ -24,6 +24,7 @@ app.use(
       return callback(new Error(`CORS policy does not allow access from origin: ${origin}`));
     },
     credentials: true,
+    exposedHeaders: ["Content-Disposition"],
   })
 );
 

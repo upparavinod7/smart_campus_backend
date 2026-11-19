@@ -21,9 +21,18 @@ async function getTopicMaterials(req, res) {
     let sql = `
       SELECT m.*,
         u.username AS author_username,
-        u.full_name AS author_name
+        u.full_name AS author_name,
+        COALESCE(f.full_name, u.full_name, u.username, 'Course Instructor') AS faculty_name,
+        COALESCE(f.full_name, u.full_name, u.username, 'Course Instructor') AS uploader_name,
+        f.employee_code AS faculty_code,
+        t.title AS topic_title,
+        sub.name AS subject_name,
+        sub.subject_code AS subject_code
       FROM academic_materials m
       LEFT JOIN users u ON m.created_by = u.user_id
+      LEFT JOIN faculty f ON (u.faculty_id = f.faculty_id OR u.email = f.email)
+      LEFT JOIN academic_topics t ON m.topic_id = t.topic_id
+      LEFT JOIN subjects sub ON t.subject_id = sub.subject_id
       WHERE m.topic_id = ?
     `;
     const params = [topicId];
@@ -224,10 +233,22 @@ async function getMaterialById(req, res) {
     const user = req.user;
 
     const [rows] = await pool.query(
-      `SELECT m.*, t.title AS topic_title, t.subject_id, s.name AS subject_name, s.subject_code AS subject_code, s.subject_code AS code
+      `SELECT m.*,
+        t.title AS topic_title,
+        t.subject_id,
+        s.name AS subject_name,
+        s.subject_code AS subject_code,
+        s.subject_code AS code,
+        u.username AS author_username,
+        u.full_name AS author_name,
+        COALESCE(f.full_name, u.full_name, u.username, 'Course Instructor') AS faculty_name,
+        COALESCE(f.full_name, u.full_name, u.username, 'Course Instructor') AS uploader_name,
+        f.employee_code AS faculty_code
        FROM academic_materials m
        JOIN academic_topics t ON m.topic_id = t.topic_id
        JOIN subjects s ON t.subject_id = s.subject_id
+       LEFT JOIN users u ON m.created_by = u.user_id
+       LEFT JOIN faculty f ON (u.faculty_id = f.faculty_id OR u.email = f.email)
        WHERE m.material_id = ?`,
       [materialId],
     );
@@ -698,7 +719,21 @@ async function downloadMaterial(req, res) {
 
     const isInline = req.path.endsWith("/view") || req.query.disposition === "inline";
     const dispositionType = isInline ? "inline" : "attachment";
-    const filename = `${mat.title.replace(/[^a-zA-Z0-9_-]/g, "_")}${path.extname(resolvedPath)}`;
+
+    let ext = path.extname(resolvedPath);
+    if (!ext) {
+      if (mat.type === "PDF" || mat.mime_type === "application/pdf") ext = ".pdf";
+      else if (mat.type === "Slide") ext = ".pptx";
+      else if (mat.type === "Video") ext = ".mp4";
+      else ext = ".txt";
+    }
+
+    const cleanTitle = (mat.title || "academic_material")
+      .trim()
+      .replace(/[^a-zA-Z0-9_\-\. ]/g, "")
+      .replace(/\s+/g, "_");
+    const filename = `${cleanTitle}${ext}`;
+
     res.setHeader("Content-Disposition", `${dispositionType}; filename="${filename}"`);
     res.setHeader("Content-Type", mat.mime_type || "application/octet-stream");
 

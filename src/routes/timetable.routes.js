@@ -6,6 +6,7 @@ const {
   createTimetableSlot,
   updateTimetableSlot,
   deleteTimetableSlot,
+  syncSlotSessions,
 } = require("../controllers/timetable.controller");
 
 const authenticateToken = require("../middleware/auth.middleware");
@@ -33,6 +34,14 @@ router.put(
   authenticateToken,
   authorizeRoles("ADMIN"),
   updateTimetableSlot,
+);
+
+// POST /api/v1/timetable/:id/sync-sessions - Admin only
+router.post(
+  "/:id/sync-sessions",
+  authenticateToken,
+  authorizeRoles("ADMIN"),
+  syncSlotSessions,
 );
 
 // DELETE /api/v1/timetable/:id - Admin only

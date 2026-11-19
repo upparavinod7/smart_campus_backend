@@ -648,10 +648,17 @@ const getMyFacultyAttendanceSessions = async (req, res) => {
           cs.closed_at,
           cs.closed_by_user,
           cs.cancel_reason,
+          (SELECT COUNT(DISTINCT e.student_id) FROM enrollments e WHERE e.section_id = sec.section_id AND e.status = 'REGISTERED') AS total_enrolled,
           (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id) AS total_marked,
           (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id AND ar.status = 'PRESENT') AS present_count,
           (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id AND ar.status = 'ABSENT') AS absent_count,
           (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id AND ar.status = 'LATE') AS late_count,
+          GREATEST(0, (SELECT COUNT(DISTINCT e.student_id) FROM enrollments e WHERE e.section_id = sec.section_id AND e.status = 'REGISTERED') - (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id)) AS unmarked_count,
+          ROUND(
+            100.0 * (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id AND ar.status IN ('PRESENT', 'LATE'))
+            / NULLIF((SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = cs.session_id), 0),
+            2
+          ) AS attendance_percentage,
           cs.created_at,
           cs.updated_at
       FROM class_sessions cs

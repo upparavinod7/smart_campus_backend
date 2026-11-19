@@ -40,7 +40,7 @@ const getAttendanceSessions = async (req, res) => {
           updated_at
       FROM class_sessions
       ${whereClause}
-      ORDER BY session_id
+      ORDER BY session_date DESC, scheduled_start DESC, session_id DESC
       `,
       params,
     );

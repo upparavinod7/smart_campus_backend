@@ -179,6 +179,12 @@ router.get(
   authenticateToken,
   quizAuthoringCtrl.getTopicQuiz,
 );
+router.post(
+  "/topics/:id/quiz",
+  authenticateToken,
+  requireAcademicPolicy("CONFIGURE_QUIZ"),
+  quizAuthoringCtrl.createTopicQuiz,
+);
 router.put(
   "/topics/:id/quiz",
   authenticateToken,

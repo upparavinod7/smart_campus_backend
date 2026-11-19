@@ -320,10 +320,15 @@ async function startQuizAttempt(req, res) {
 
     // Random Question Selection if questions_to_draw is configured (AC-QZ-05)
     if (quiz.questions_to_draw && quiz.questions_to_draw > 0) {
-      // Gracefully cap to available questions so smaller question pools do not block quiz attempts
-      const countToDraw = Math.min(rawQuestions.length, quiz.questions_to_draw);
+      if (quiz.questions_to_draw > rawQuestions.length) {
+        return res.status(400).json({
+          success: false,
+          code: "INSUFFICIENT_QUESTIONS_IN_BANK",
+          message: `Quiz requires ${quiz.questions_to_draw} questions to be drawn, but only ${rawQuestions.length} approved questions exist in the bank.`,
+        });
+      }
       const shuffledBank = shuffleArray(rawQuestions);
-      questionsPool = shuffledBank.slice(0, countToDraw);
+      questionsPool = shuffledBank.slice(0, quiz.questions_to_draw);
     }
 
     // Process & sanitize questions for student snapshot

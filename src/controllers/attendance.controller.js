@@ -182,6 +182,13 @@ const createAttendance = async (req, res) => {
 
 const getAttendanceRecords = async (req, res) => {
   try {
+    if (req.user && req.user.role === "STUDENT") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Students are not authorized to view global attendance records.",
+      });
+    }
+
     const [records] = await pool.query(
       `
             SELECT
@@ -331,6 +338,16 @@ const getAttendanceById = async (req, res) => {
 const getStudentAttendance = async (req, res) => {
   try {
     const { studentId } = req.params;
+
+    // Student privacy enforcement: Students may only access their own attendance
+    if (req.user && req.user.role === "STUDENT") {
+      if (Number(req.user.student_id) !== Number(studentId)) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. You can only view your own attendance records.",
+        });
+      }
+    }
 
     const [records] = await pool.query(
       `
@@ -519,6 +536,17 @@ const getFacultyAttendance = async (req, res) => {
   try {
     const { facultyId } = req.params;
 
+    // Faculty isolation: Faculty can only access attendance records for their own profile
+    if (req.user && req.user.role === "FACULTY") {
+      const facultyRec = await resolveFacultyRecord(req.user);
+      if (!facultyRec || Number(facultyRec.faculty_id) !== Number(facultyId)) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. You can only view attendance records for your own faculty profile.",
+        });
+      }
+    }
+
     // Check whether faculty exists
     const [faculty] = await pool.query(
       `
@@ -608,6 +636,16 @@ const getFacultyAttendance = async (req, res) => {
 const getStudentAttendanceSummary = async (req, res) => {
   try {
     const { studentId } = req.params;
+
+    // Student privacy enforcement: Students may only access their own attendance summary
+    if (req.user && req.user.role === "STUDENT") {
+      if (Number(req.user.student_id) !== Number(studentId)) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. You can only view your own attendance summary.",
+        });
+      }
+    }
 
     // Check whether student exists
     const [students] = await pool.query(

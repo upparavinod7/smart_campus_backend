@@ -67,6 +67,31 @@ const getStudents = async (req, res) => {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
+    const pageNum = parseInt(req.query.page, 10);
+    const limitNum = parseInt(req.query.limit, 10);
+    const usePagination = !isNaN(pageNum) && !isNaN(limitNum) && pageNum > 0 && limitNum > 0;
+
+    let totalCount = 0;
+    let paginatedParams = [...params];
+    let limitClause = "";
+
+    if (usePagination) {
+      const [countRows] = await pool.query(
+        `
+        SELECT COUNT(*) AS total
+        FROM students s
+        LEFT JOIN batches b ON s.batch_id = b.batch_id
+        LEFT JOIN programmes p ON b.programme_id = p.programme_id
+        ${whereClause}
+        `,
+        params
+      );
+      totalCount = countRows[0]?.total || 0;
+      const offset = (pageNum - 1) * limitNum;
+      limitClause = "LIMIT ? OFFSET ?";
+      paginatedParams.push(limitNum, offset);
+    }
+
     const [students] = await pool.query(
       `
       SELECT
@@ -138,14 +163,19 @@ const getStudents = async (req, res) => {
       LEFT JOIN schools sch ON p.school_id = sch.school_id
       ${whereClause}
       ORDER BY s.student_id ASC
+      ${limitClause}
       `,
-      params,
+      paginatedParams,
     );
 
     return res.status(200).json({
       success: true,
       message: "Students retrieved successfully",
       count: students.length,
+      total: usePagination ? totalCount : students.length,
+      page: usePagination ? pageNum : 1,
+      limit: usePagination ? limitNum : students.length,
+      totalPages: usePagination ? Math.ceil(totalCount / limitNum) || 1 : 1,
       data: students,
     });
   } catch (error) {
