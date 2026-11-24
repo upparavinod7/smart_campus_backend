@@ -5,8 +5,11 @@ const {
     getFacultyById,
     createFaculty,
     updateFaculty,
-    deleteFaculty
+    deleteFaculty,
+    uploadFacultyPhoto,
+    deleteFacultyPhoto,
 } = require("../controllers/faculty.controller");
+const { handlePhotoUpload } = require("../utils/photoUpload");
 
 const authenticateToken = require("../middleware/auth.middleware");
 const authorizeRoles = require("../middleware/role.middleware");
@@ -38,6 +41,16 @@ router.put("/t/:id", authenticateToken, authorizeRoles("ADMIN"), updateFaculty);
 // Deactivate faculty profile
 router.delete("/:id", authenticateToken, authorizeRoles("ADMIN"), deleteFaculty);
 router.delete("/t/:id", authenticateToken, authorizeRoles("ADMIN"), deleteFaculty);
+
+// POST /api/v1/staff/:id/photo and /api/v1/staff/t/:id/photo
+// Upload faculty photo
+router.post("/:id/photo", authenticateToken, authorizeRoles("ADMIN"), handlePhotoUpload, uploadFacultyPhoto);
+router.post("/t/:id/photo", authenticateToken, authorizeRoles("ADMIN"), handlePhotoUpload, uploadFacultyPhoto);
+
+// DELETE /api/v1/staff/:id/photo and /api/v1/staff/t/:id/photo
+// Delete faculty photo
+router.delete("/:id/photo", authenticateToken, authorizeRoles("ADMIN"), deleteFacultyPhoto);
+router.delete("/t/:id/photo", authenticateToken, authorizeRoles("ADMIN"), deleteFacultyPhoto);
 
 
 module.exports = router;

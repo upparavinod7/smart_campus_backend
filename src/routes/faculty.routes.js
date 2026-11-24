@@ -5,8 +5,11 @@ const {
     getFacultyById,
     createFaculty,
     updateFaculty,
-    deleteFaculty
+    deleteFaculty,
+    uploadFacultyPhoto,
+    deleteFacultyPhoto,
 } = require("../controllers/faculty.controller");
+const { handlePhotoUpload } = require("../utils/photoUpload");
 
 const authenticateToken = require("../middleware/auth.middleware");
 const authorizeRoles = require("../middleware/role.middleware");
@@ -54,6 +57,23 @@ router.delete(
     authenticateToken,
     authorizeRoles("ADMIN"),
     deleteFaculty
+);
+
+// Upload faculty photo - ADMIN only
+router.post(
+    "/:id/photo",
+    authenticateToken,
+    authorizeRoles("ADMIN"),
+    handlePhotoUpload,
+    uploadFacultyPhoto
+);
+
+// Delete faculty photo - ADMIN only
+router.delete(
+    "/:id/photo",
+    authenticateToken,
+    authorizeRoles("ADMIN"),
+    deleteFacultyPhoto
 );
 
 module.exports = router;

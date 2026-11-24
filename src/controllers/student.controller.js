@@ -103,6 +103,8 @@ const getStudents = async (req, res) => {
         s.blood_group,
         s.email,
         s.phone,
+        COALESCE(s.profile_image, u.profile_image) AS profile_image,
+        COALESCE(s.profile_image, u.profile_image) AS photo_url,
         s.status,
         s.created_at,
         s.updated_at,
@@ -155,6 +157,7 @@ const getStudents = async (req, res) => {
         ) AS section_code
 
       FROM students s
+      LEFT JOIN users u ON u.student_id = s.student_id
       LEFT JOIN batches b ON s.batch_id = b.batch_id
       LEFT JOIN academic_years ay ON b.start_year_id = ay.academic_year_id
       LEFT JOIN programmes p ON b.programme_id = p.programme_id
@@ -208,6 +211,8 @@ const getStudentById = async (req, res) => {
         s.blood_group,
         s.email,
         s.phone,
+        COALESCE(s.profile_image, u.profile_image) AS profile_image,
+        COALESCE(s.profile_image, u.profile_image) AS photo_url,
         s.status,
         s.created_at,
         s.updated_at,
@@ -260,6 +265,7 @@ const getStudentById = async (req, res) => {
         ) AS section_code
 
       FROM students s
+      LEFT JOIN users u ON u.student_id = s.student_id
       LEFT JOIN batches b ON s.batch_id = b.batch_id
       LEFT JOIN academic_years ay ON b.start_year_id = ay.academic_year_id
       LEFT JOIN programmes p ON b.programme_id = p.programme_id
@@ -1120,10 +1126,142 @@ const deleteStudent = async (req, res) => {
   }
 };
 
+// POST /api/v1/students/:id/photo
+const uploadStudentPhoto = async (req, res) => {
+  let connection;
+  try {
+    const { id } = req.params;
+    const photoData = req.photo?.url ||
+      req.body?.profile_image ||
+      req.body?.photo ||
+      req.body?.avatar_url ||
+      req.body?.profile_photo ||
+      req.body?.image ||
+      null;
+
+    if (!photoData) {
+      return res.status(400).json({
+        success: false,
+        message: "No photo data provided",
+      });
+    }
+
+    const [student] = await pool.query(
+      "SELECT student_id FROM students WHERE student_id = ? LIMIT 1",
+      [id]
+    );
+
+    if (student.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found",
+      });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    await connection.query(
+      "UPDATE students SET profile_image = ? WHERE student_id = ?",
+      [photoData, id]
+    );
+
+    await connection.query(
+      "UPDATE users SET profile_image = ? WHERE student_id = ?",
+      [photoData, id]
+    );
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Student photo uploaded successfully",
+      data: {
+        student_id: Number(id),
+        profile_image: photoData,
+        photo_url: photoData,
+      },
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+    }
+    console.error("Upload student photo error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+};
+
+// DELETE /api/v1/students/:id/photo
+const deleteStudentPhoto = async (req, res) => {
+  let connection;
+  try {
+    const { id } = req.params;
+
+    const [student] = await pool.query(
+      "SELECT student_id FROM students WHERE student_id = ? LIMIT 1",
+      [id]
+    );
+
+    if (student.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found",
+      });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    await connection.query(
+      "UPDATE students SET profile_image = NULL WHERE student_id = ?",
+      [id]
+    );
+
+    await connection.query(
+      "UPDATE users SET profile_image = NULL WHERE student_id = ?",
+      [id]
+    );
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Student photo removed successfully",
+      data: {
+        student_id: Number(id),
+        profile_image: null,
+        photo_url: null,
+      },
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+    }
+    console.error("Delete student photo error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+};
+
 module.exports = {
   getStudents,
   getStudentById,
   createStudent,
   updateStudent,
   deleteStudent,
+  uploadStudentPhoto,
+  deleteStudentPhoto,
 };

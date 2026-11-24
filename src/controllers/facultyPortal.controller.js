@@ -51,6 +51,7 @@ const resolveFacultyRecord = async (user) => {
         f.in_charge_class,
         f.phone,
         f.email,
+        f.profile_image,
         f.designation_id,
         des.name AS designation,
         f.school_id,

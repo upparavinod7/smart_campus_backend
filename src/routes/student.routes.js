@@ -6,7 +6,10 @@ const {
   createStudent,
   updateStudent,
   deleteStudent,
+  uploadStudentPhoto,
+  deleteStudentPhoto,
 } = require("../controllers/student.controller");
+const { handlePhotoUpload } = require("../utils/photoUpload");
 
 const authenticateToken = require("../middleware/auth.middleware");
 const authorizeRoles = require("../middleware/role.middleware");
@@ -36,6 +39,25 @@ router.delete(
   authenticateToken,
   authorizeRoles("ADMIN"),
   deleteStudent,
+);
+
+// POST /api/v1/students/:id/photo
+// ADMIN only
+router.post(
+  "/:id/photo",
+  authenticateToken,
+  authorizeRoles("ADMIN"),
+  handlePhotoUpload,
+  uploadStudentPhoto,
+);
+
+// DELETE /api/v1/students/:id/photo
+// ADMIN only
+router.delete(
+  "/:id/photo",
+  authenticateToken,
+  authorizeRoles("ADMIN"),
+  deleteStudentPhoto,
 );
 
 module.exports = router;

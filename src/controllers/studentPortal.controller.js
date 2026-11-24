@@ -16,6 +16,7 @@ const getMyProfile = async (req, res) => {
         s.blood_group,
         s.email,
         s.phone,
+        s.profile_image,
         s.status AS student_status,
 
         b.batch_id,
@@ -413,6 +414,7 @@ const getStudentDashboard = async (req, res) => {
             s.full_name,
             s.email,
             s.phone,
+            s.profile_image,
             s.status AS student_status,
             b.batch_id,
             b.label AS batch_label,

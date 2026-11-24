@@ -27,6 +27,7 @@ const login = async (req, res) => {
       role,
       faculty_id,
       student_id,
+      profile_image,
       is_active
       FROM users
       WHERE username = ?
@@ -86,6 +87,7 @@ const login = async (req, res) => {
         role: user.role,
         faculty_id: user.faculty_id,
         student_id: user.student_id,
+        profile_image: user.profile_image || null,
       },
       token,
     });
@@ -122,6 +124,7 @@ const adminLogin = async (req, res) => {
       role,
       faculty_id,
       student_id,
+      profile_image,
       is_active
       FROM users
       WHERE username = ? OR email = ?
@@ -191,6 +194,7 @@ const adminLogin = async (req, res) => {
         role: user.role,
         faculty_id: user.faculty_id,
         student_id: user.student_id,
+        profile_image: user.profile_image || null,
       },
       token,
     });
@@ -219,6 +223,7 @@ const getMe = async (req, res) => {
         role,
         faculty_id,
         student_id,
+        profile_image,
         is_active
       FROM users
       WHERE user_id = ?
@@ -252,6 +257,7 @@ const getMe = async (req, res) => {
         role: user.role,
         faculty_id: user.faculty_id,
         student_id: user.student_id,
+        profile_image: user.profile_image || null,
       },
     });
   } catch (error) {
@@ -282,6 +288,7 @@ const getProfile = async (req, res) => {
         role,
         faculty_id,
         student_id,
+        profile_image,
         is_active,
         created_at,
         last_login_at
@@ -311,6 +318,7 @@ const getProfile = async (req, res) => {
       joining_year: user.joining_year,
       email: user.email,
       role: user.role,
+      profile_image: user.profile_image || null,
       status: user.is_active ? "ACTIVE" : "INACTIVE",
       created_at: user.created_at,
       last_login_at: user.last_login_at,
@@ -327,6 +335,7 @@ const getProfile = async (req, res) => {
           s.blood_group,
           s.email,
           s.phone,
+          s.profile_image,
           s.status AS student_status,
           b.label AS batch_label,
           p.programme_code,
@@ -365,6 +374,7 @@ const getProfile = async (req, res) => {
           blood_group: s.blood_group || profileData.blood_group,
           email: s.email || profileData.email,
           phone: s.phone,
+          profile_image: s.profile_image || profileData.profile_image || null,
           student_status: s.student_status,
           batch_label: s.batch_label,
           batch: s.batch_label,
@@ -393,6 +403,7 @@ const getProfile = async (req, res) => {
           f.in_charge_class,
           f.phone,
           f.email,
+          f.profile_image,
           des.name AS designation,
           d.name AS department_name,
           d.code AS department_code,
@@ -422,6 +433,7 @@ const getProfile = async (req, res) => {
           inChargeClass: f.in_charge_class || null,
           phone: f.phone,
           email: f.email || profileData.email,
+          profile_image: f.profile_image || profileData.profile_image || null,
           designation: f.designation,
           department_name: f.department_name,
           department: f.department_name,
@@ -474,6 +486,11 @@ const updateProfile = async (req, res) => {
       joiningYear,
       employee_id,
       employeeId,
+      profile_image,
+      photo,
+      avatar_url,
+      profile_photo,
+      image,
     } = req.body || {};
 
     const resolvedFullName = full_name || name;
@@ -481,6 +498,7 @@ const updateProfile = async (req, res) => {
     const resolvedBloodGroup = blood_group || bloodGroup;
     const resolvedJoiningYear = joining_year || joiningYear;
     const resolvedEmployeeId = employee_id || employeeId;
+    const resolvedProfileImage = profile_image !== undefined ? profile_image : (photo !== undefined ? photo : (avatar_url !== undefined ? avatar_url : (profile_photo !== undefined ? profile_photo : (image !== undefined ? image : undefined))));
 
     if (
       !resolvedFullName &&
@@ -491,7 +509,8 @@ const updateProfile = async (req, res) => {
       !resolvedDob &&
       !resolvedBloodGroup &&
       !resolvedJoiningYear &&
-      !resolvedEmployeeId
+      !resolvedEmployeeId &&
+      resolvedProfileImage === undefined
     ) {
       return res.status(400).json({
         success: false,
@@ -598,6 +617,11 @@ const updateProfile = async (req, res) => {
       values.push(resolvedEmployeeId || null);
     }
 
+    if (resolvedProfileImage !== undefined) {
+      updates.push("profile_image = ?");
+      values.push(resolvedProfileImage || null);
+    }
+
     if (password) {
       if (password.length < 6) {
         return res.status(400).json({
@@ -633,6 +657,7 @@ const updateProfile = async (req, res) => {
         role,
         faculty_id,
         student_id,
+        profile_image,
         is_active,
         created_at,
         updated_at
@@ -659,6 +684,7 @@ const updateProfile = async (req, res) => {
         employee_id: updatedUser.employee_id,
         email: updatedUser.email,
         role: updatedUser.role,
+        profile_image: updatedUser.profile_image || null,
         is_active: updatedUser.is_active,
       },
     });
@@ -706,6 +732,89 @@ const logout = async (req, res) => {
     });
   }
 };
+const uploadAdminPhoto = async (req, res) => {
+  try {
+    const { user_id, role } = req.user;
+
+    if (role !== "ADMIN") {
+      return res.status(403).json({
+        success: false,
+        message: "Profile modification is restricted to administrators.",
+      });
+    }
+
+    const photoData = req.photo?.url ||
+      req.body?.profile_image ||
+      req.body?.photo ||
+      req.body?.avatar_url ||
+      req.body?.profile_photo ||
+      req.body?.image ||
+      null;
+
+    if (!photoData) {
+      return res.status(400).json({
+        success: false,
+        message: "No photo data provided",
+      });
+    }
+
+    await pool.query(
+      "UPDATE users SET profile_image = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+      [photoData, user_id]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Admin profile photo updated successfully",
+      data: {
+        user_id,
+        profile_image: photoData,
+        photo_url: photoData,
+      },
+    });
+  } catch (error) {
+    console.error("Upload admin photo error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const deleteAdminPhoto = async (req, res) => {
+  try {
+    const { user_id, role } = req.user;
+
+    if (role !== "ADMIN") {
+      return res.status(403).json({
+        success: false,
+        message: "Profile modification is restricted to administrators.",
+      });
+    }
+
+    await pool.query(
+      "UPDATE users SET profile_image = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+      [user_id]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Admin profile photo removed successfully",
+      data: {
+        user_id,
+        profile_image: null,
+        photo_url: null,
+      },
+    });
+  } catch (error) {
+    console.error("Delete admin photo error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
 module.exports = {
   login,
   adminLogin,
@@ -713,4 +822,6 @@ module.exports = {
   getProfile,
   updateProfile,
   logout,
+  uploadAdminPhoto,
+  deleteAdminPhoto,
 };

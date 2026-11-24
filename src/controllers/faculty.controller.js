@@ -54,6 +54,8 @@ const getFaculty = async (req, res) => {
           f.in_charge_class,
           f.phone,
           f.email,
+          COALESCE(f.profile_image, u.profile_image) AS profile_image,
+          COALESCE(f.profile_image, u.profile_image) AS photo_url,
           f.designation_id,
           d.name AS designation_name,
           f.school_id,
@@ -66,6 +68,7 @@ const getFaculty = async (req, res) => {
           f.created_at,
           f.updated_at
       FROM faculty f
+      LEFT JOIN users u ON u.faculty_id = f.faculty_id
       LEFT JOIN designations d ON f.designation_id = d.designation_id
       LEFT JOIN schools s ON f.school_id = s.school_id
       LEFT JOIN departments dept ON f.department_id = dept.department_id
@@ -109,6 +112,8 @@ const getFacultyById = async (req, res) => {
           f.in_charge_class,
           f.phone,
           f.email,
+          COALESCE(f.profile_image, u.profile_image) AS profile_image,
+          COALESCE(f.profile_image, u.profile_image) AS photo_url,
           f.designation_id,
           d.name AS designation_name,
           f.school_id,
@@ -121,6 +126,7 @@ const getFacultyById = async (req, res) => {
           f.created_at,
           f.updated_at
       FROM faculty f
+      LEFT JOIN users u ON u.faculty_id = f.faculty_id
       LEFT JOIN designations d ON f.designation_id = d.designation_id
       LEFT JOIN schools s ON f.school_id = s.school_id
       LEFT JOIN departments dept ON f.department_id = dept.department_id
@@ -172,6 +178,11 @@ const createFaculty = async (req, res) => {
       is_active,
       username,
       password,
+      profile_image,
+      photo,
+      avatar_url,
+      profile_photo,
+      image,
     } = req.body;
 
     if (!employee_code || !full_name || !school_id) {
@@ -341,6 +352,7 @@ const createFaculty = async (req, res) => {
 
     const rawPassword = password || "Faculty@123";
     const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const profileImageValue = profile_image || photo || avatar_url || profile_photo || image || null;
 
     // Atomic transaction: Faculty + User
     connection = await pool.getConnection();
@@ -359,12 +371,13 @@ const createFaculty = async (req, res) => {
               in_charge_class,
               phone,
               email,
+              profile_image,
               designation_id,
               school_id,
               department_id,
               is_active
           )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         trimmedEmpCode,
@@ -376,6 +389,7 @@ const createFaculty = async (req, res) => {
         formattedInCharge,
         trimmedPhone,
         trimmedEmail,
+        profileImageValue,
         designation_id ? Number(designation_id) : null,
         Number(school_id),
         department_id ? Number(department_id) : null,
@@ -401,9 +415,10 @@ const createFaculty = async (req, res) => {
               password_hash,
               role,
               faculty_id,
+              profile_image,
               is_active
           )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FACULTY', ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FACULTY', ?, ?, ?)
       `,
       [
         targetUsername,
@@ -416,6 +431,7 @@ const createFaculty = async (req, res) => {
         targetEmail,
         passwordHash,
         newFacultyId,
+        profileImageValue,
         activeStatus,
       ],
     );
@@ -488,6 +504,11 @@ const updateFaculty = async (req, res) => {
       department_id,
       is_active,
       username,
+      profile_image,
+      photo,
+      avatar_url,
+      profile_photo,
+      image,
     } = req.body;
 
     const [existingFaculty] = await pool.query(
@@ -601,11 +622,14 @@ const updateFaculty = async (req, res) => {
       ? (blood_group ? String(blood_group).trim().toUpperCase() : null)
       : faculty.blood_group;
 
+    const incomingImage = profile_image !== undefined ? profile_image : (photo !== undefined ? photo : (avatar_url !== undefined ? avatar_url : (profile_photo !== undefined ? profile_photo : (image !== undefined ? image : undefined))));
+
     const updatedFaculty = {
       employee_code: employee_code !== undefined ? String(employee_code).trim() : faculty.employee_code,
       full_name: full_name !== undefined ? String(full_name).trim() : faculty.full_name,
       email: email !== undefined ? (email ? String(email).trim() : null) : faculty.email,
       phone: phone !== undefined ? (phone ? String(phone).trim() : null) : faculty.phone,
+      profile_image: incomingImage !== undefined ? incomingImage : faculty.profile_image,
       gender: normalizedGender,
       date_of_birth: formattedDob,
       blood_group: formattedBloodGroup,
@@ -633,6 +657,7 @@ const updateFaculty = async (req, res) => {
           in_charge_class = ?,
           phone = ?,
           email = ?,
+          profile_image = ?,
           designation_id = ?,
           school_id = ?,
           department_id = ?,
@@ -649,6 +674,7 @@ const updateFaculty = async (req, res) => {
         updatedFaculty.in_charge_class,
         updatedFaculty.phone,
         updatedFaculty.email,
+        updatedFaculty.profile_image,
         updatedFaculty.designation_id,
         updatedFaculty.school_id,
         updatedFaculty.department_id,
@@ -680,6 +706,11 @@ const updateFaculty = async (req, res) => {
     if (updatedFaculty.email) {
       userUpdates.push("email = ?");
       userParams.push(updatedFaculty.email);
+    }
+
+    if (incomingImage !== undefined) {
+      userUpdates.push("profile_image = ?");
+      userParams.push(incomingImage);
     }
 
     if (username) {
@@ -800,10 +831,143 @@ const deleteFaculty = async (req, res) => {
   }
 };
 
+// POST /api/v1/faculty/:id/photo
+// POST /api/v1/staff/t/:id/photo
+const uploadFacultyPhoto = async (req, res) => {
+  let connection;
+  try {
+    const { id } = req.params;
+    const photoData = req.photo?.url ||
+      req.body?.profile_image ||
+      req.body?.photo ||
+      req.body?.avatar_url ||
+      req.body?.profile_photo ||
+      req.body?.image ||
+      null;
+
+    if (!photoData) {
+      return res.status(400).json({
+        success: false,
+        message: "No photo data provided",
+      });
+    }
+
+    const [faculty] = await pool.query(
+      "SELECT faculty_id FROM faculty WHERE faculty_id = ? LIMIT 1",
+      [id]
+    );
+
+    if (faculty.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Faculty member not found",
+      });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    await connection.query(
+      "UPDATE faculty SET profile_image = ? WHERE faculty_id = ?",
+      [photoData, id]
+    );
+
+    await connection.query(
+      "UPDATE users SET profile_image = ? WHERE faculty_id = ?",
+      [photoData, id]
+    );
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Faculty photo uploaded successfully",
+      data: {
+        faculty_id: Number(id),
+        profile_image: photoData,
+        photo_url: photoData,
+      },
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+    }
+    console.error("Upload faculty photo error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+};
+
+// DELETE /api/v1/faculty/:id/photo
+const deleteFacultyPhoto = async (req, res) => {
+  let connection;
+  try {
+    const { id } = req.params;
+
+    const [faculty] = await pool.query(
+      "SELECT faculty_id FROM faculty WHERE faculty_id = ? LIMIT 1",
+      [id]
+    );
+
+    if (faculty.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Faculty member not found",
+      });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    await connection.query(
+      "UPDATE faculty SET profile_image = NULL WHERE faculty_id = ?",
+      [id]
+    );
+
+    await connection.query(
+      "UPDATE users SET profile_image = NULL WHERE faculty_id = ?",
+      [id]
+    );
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Faculty photo removed successfully",
+      data: {
+        faculty_id: Number(id),
+        profile_image: null,
+        photo_url: null,
+      },
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+    }
+    console.error("Delete faculty photo error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+};
+
 module.exports = {
   getFaculty,
   getFacultyById,
   createFaculty,
   updateFaculty,
   deleteFaculty,
+  uploadFacultyPhoto,
+  deleteFacultyPhoto,
 };
