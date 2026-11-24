@@ -84,6 +84,19 @@ function handlePhotoUpload(req, res, next) {
               ? path.extname(originalFilename).toLowerCase()
               : ".jpg";
             const safeExt = [".jpg", ".jpeg", ".png", ".webp"].includes(ext) ? ext : ".jpg";
+
+            // Verify file signature magic bytes for JPEG / PNG / WebP
+            const isJpeg = bodyBuffer.length >= 3 && bodyBuffer[0] === 0xFF && bodyBuffer[1] === 0xD8 && bodyBuffer[2] === 0xFF;
+            const isPng = bodyBuffer.length >= 8 && bodyBuffer[0] === 0x89 && bodyBuffer[1] === 0x50 && bodyBuffer[2] === 0x4E && bodyBuffer[3] === 0x47;
+            const isWebp = bodyBuffer.length >= 12 && bodyBuffer.slice(0, 4).toString() === "RIFF" && bodyBuffer.slice(8, 12).toString() === "WEBP";
+
+            if (!isJpeg && !isPng && !isWebp) {
+              return res.status(400).json({
+                success: false,
+                message: "Invalid file type. Please upload a valid JPG, PNG, or WebP photo.",
+              });
+            }
+
             const filename = `photo-${Date.now()}-${Math.random().toString(36).substring(2, 8)}${safeExt}`;
             const targetPath = path.join(PHOTO_DIR, filename);
 
