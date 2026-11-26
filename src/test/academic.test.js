@@ -58,6 +58,11 @@ test.before(async () => {
     body: JSON.stringify({ username: "J26AIM001", password: "Student@123" }),
   });
   const studentData = await studentRes.json();
+  if (!studentData.success || !studentData.data) {
+    throw new Error(
+      `Student login failed in academic test setup (${studentRes.status}): ${studentData.message || JSON.stringify(studentData)}. Ensure demo seed is applied ('npm run db:seed:demo').`,
+    );
+  }
   studentToken = studentData.token;
   studentUserId = studentData.data.user_id;
 

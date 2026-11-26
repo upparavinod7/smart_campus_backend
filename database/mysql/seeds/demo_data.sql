@@ -54,10 +54,11 @@ INSERT IGNORE INTO sections (section_id, offering_id, batch_id, section_code, ma
   (3, 3, 4, 'A', 40);
 
 -- 9. Student Profiles
-INSERT IGNORE INTO students (student_id, register_no, full_name, email, batch_id, status) VALUES
-  (1, '2023BTAM014', 'UPPARA VINOD', 'btam23014@joyuniversity.edu.in', 4, 'ACTIVE'),
+INSERT INTO students (student_id, register_no, full_name, email, batch_id, status) VALUES
+  (1, 'J26AIM001', 'Arun Kumar', 'student1@joyuniversity.edu.in', 4, 'ACTIVE'),
   (2, 'JU26AIML002', 'Student Two', 'student2@joyuniversity.edu.in', 4, 'ACTIVE'),
-  (3, 'JU26AIML003', 'Student Three', 'student3@joyuniversity.edu.in', 4, 'ACTIVE');
+  (3, 'JU26AIML003', 'Student Three', 'student3@joyuniversity.edu.in', 4, 'ACTIVE')
+ON DUPLICATE KEY UPDATE register_no = VALUES(register_no), full_name = VALUES(full_name), email = VALUES(email), status = VALUES(status);
 
 -- 10. Student Enrollments
 INSERT IGNORE INTO enrollments (enrollment_id, student_id, section_id, registration_type, status, registered_on) VALUES
@@ -69,10 +70,11 @@ INSERT IGNORE INTO enrollments (enrollment_id, student_id, section_id, registrat
 -- Admin: admin / Admin@123
 -- Faculty: FAC001 / Faculty@123
 -- Student: J26AIM001 / Student@123
-INSERT IGNORE INTO users (user_id, username, email, password_hash, role, faculty_id, student_id, is_active) VALUES
+INSERT INTO users (user_id, username, email, password_hash, role, faculty_id, student_id, is_active) VALUES
   (1, 'admin', 'admin@joyuniversity.edu.in', '$2b$10$S815ejeq69wCY3jPdUkuYOLN43GhaIRZoXLVoHBCVojIwY2ny9Nw6', 'ADMIN', NULL, NULL, 1),
   (3, 'J26AIM001', 'student1@joyuniversity.edu.in', '$2b$10$f7GOX3vL0z63ukqt.HmsReuz/Y/O6l.0aqVwqZYU070zEIuHqC6Gq', 'STUDENT', NULL, 1, 1),
-  (4, 'FAC001', 'srajesh.kumar@joyuniversity.edu.in', '$2b$10$UfMVaEoXVlZC.cjgS5xeNO1gpRGCdB6Uwc7/gMnseiAxuHsO4Rxre', 'FACULTY', 1, NULL, 1);
+  (4, 'FAC001', 'srajesh.kumar@joyuniversity.edu.in', '$2b$10$UfMVaEoXVlZC.cjgS5xeNO1gpRGCdB6Uwc7/gMnseiAxuHsO4Rxre', 'FACULTY', 1, NULL, 1)
+ON DUPLICATE KEY UPDATE username = VALUES(username), password_hash = VALUES(password_hash), role = VALUES(role), student_id = VALUES(student_id), faculty_id = VALUES(faculty_id), is_active = VALUES(is_active);
 
 -- 12. Semester Timetable Slots
 INSERT IGNORE INTO timetable_slots (slot_id, section_id, faculty_id, classroom_id, day_of_week, start_time, end_time, effective_from, is_active) VALUES

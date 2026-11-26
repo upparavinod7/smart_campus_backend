@@ -1992,6 +1992,11 @@ test("Timetable Conflict Detection: Faculty, Classroom, Section conflicts (409) 
   let slotAId;
   let slotBId;
 
+  // Clean up any stale slots from previous aborted runs
+  await pool.query(
+    "DELETE FROM timetable_slots WHERE day_of_week = 5 AND effective_from >= '2027-01-01'",
+  );
+
   try {
     // 1. Create Base Slot A on day 5 (Friday) from 14:00 to 15:30
     const slotARes = await fetch(`${baseUrl}/timetable`, {
