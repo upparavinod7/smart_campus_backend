@@ -103,6 +103,7 @@ const getStudents = async (req, res) => {
         s.blood_group,
         s.email,
         s.phone,
+        s.address,
         COALESCE(s.profile_image, u.profile_image) AS profile_image,
         COALESCE(s.profile_image, u.profile_image) AS photo_url,
         s.status,
@@ -211,6 +212,7 @@ const getStudentById = async (req, res) => {
         s.blood_group,
         s.email,
         s.phone,
+        s.address,
         COALESCE(s.profile_image, u.profile_image) AS profile_image,
         COALESCE(s.profile_image, u.profile_image) AS photo_url,
         s.status,
@@ -314,6 +316,7 @@ const createStudent = async (req, res) => {
       full_name,
       email,
       phone,
+      address,
       batch_id,
       status,
       // Demographics
@@ -341,6 +344,7 @@ const createStudent = async (req, res) => {
     const trimmedFullName = String(full_name).trim();
     const trimmedEmail = email ? String(email).trim() : null;
     const trimmedPhone = phone ? String(phone).trim() : null;
+    const trimmedAddress = address ? String(address).trim() : null;
 
     const allowedStatuses = [
       "ACTIVE",
@@ -533,8 +537,8 @@ const createStudent = async (req, res) => {
     const [studentResult] = await connection.query(
       `
       INSERT INTO students
-        (register_no, full_name, gender, date_of_birth, blood_group, email, phone, batch_id, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (register_no, full_name, gender, date_of_birth, blood_group, email, phone, address, batch_id, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         trimmedRegNo,
@@ -544,6 +548,7 @@ const createStudent = async (req, res) => {
         formattedBloodGroup,
         trimmedEmail,
         trimmedPhone,
+        trimmedAddress,
         batch.batch_id,
         studentStatus,
       ],
@@ -646,6 +651,7 @@ const updateStudent = async (req, res) => {
       full_name,
       email,
       phone,
+      address,
       batch_id,
       status,
       // Demographics
@@ -830,6 +836,7 @@ const updateStudent = async (req, res) => {
       blood_group: formattedBloodGroup,
       email: email !== undefined ? (email ? String(email).trim() : null) : student.email,
       phone: phone !== undefined ? (phone ? String(phone).trim() : null) : student.phone,
+      address: address !== undefined ? (address ? String(address).trim() : null) : student.address,
       batch_id: targetBatchId,
       status: status !== undefined ? status : student.status,
     };
@@ -848,6 +855,7 @@ const updateStudent = async (req, res) => {
         blood_group = ?,
         email = ?,
         phone = ?,
+        address = ?,
         batch_id = ?,
         status = ?
       WHERE student_id = ?
@@ -860,6 +868,7 @@ const updateStudent = async (req, res) => {
         updatedStudent.blood_group,
         updatedStudent.email,
         updatedStudent.phone,
+        updatedStudent.address,
         updatedStudent.batch_id,
         updatedStudent.status,
         id,
