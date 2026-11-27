@@ -1561,7 +1561,7 @@ CREATE TABLE `timetable_slots` (
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`slot_id`),
-  UNIQUE KEY `uq_slot` (`section_id`,`day_of_week`,`start_time`,`effective_from`),
+  KEY `ix_slot_section` (`section_id`),
   KEY `ix_slot_room` (`classroom_id`,`day_of_week`,`start_time`),
   KEY `ix_slot_faculty` (`faculty_id`,`day_of_week`,`start_time`),
   CONSTRAINT `fk_slot_fac` FOREIGN KEY (`faculty_id`) REFERENCES `faculty` (`faculty_id`),

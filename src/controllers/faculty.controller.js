@@ -1,5 +1,6 @@
 const pool = require("../config/mysql");
 const bcrypt = require("bcryptjs");
+const { ensureCreditWallet } = require("../services/creditWallet.service");
 
 const ALLOWED_GENDERS = ["male", "female", "other"];
 
@@ -400,7 +401,7 @@ const createFaculty = async (req, res) => {
     const newFacultyId = result.insertId;
 
     // Create linked user account
-    await connection.query(
+    const [userResult] = await connection.query(
       `
       INSERT INTO users
           (
@@ -435,6 +436,12 @@ const createFaculty = async (req, res) => {
         activeStatus,
       ],
     );
+
+    await ensureCreditWallet(connection, {
+      userId: userResult.insertId,
+      facultyId: newFacultyId,
+      actorUserId: req.user.user_id,
+    });
 
     await connection.commit();
 

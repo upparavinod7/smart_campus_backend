@@ -13,7 +13,16 @@ const defaultDevOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
 const allowedOrigins = Array.from(new Set([...configuredOrigins, ...defaultDevOrigins]));
 
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "script-src": ["'self'", "https://checkout.razorpay.com"],
+      "connect-src": ["'self'", "https://api.razorpay.com", "https://checkout.razorpay.com"],
+      "frame-src": ["'self'", "https://api.razorpay.com", "https://checkout.razorpay.com"],
+      "img-src": ["'self'", "data:", "https://*.razorpay.com"],
+    },
+  },
 }));
 app.use(
   cors({

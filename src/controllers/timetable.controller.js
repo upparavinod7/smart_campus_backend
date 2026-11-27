@@ -888,6 +888,14 @@ const createTimetableSlot = async (req, res) => {
   } catch (error) {
     console.error("Create timetable slot error:", error);
 
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        code: "TIMETABLE_SLOT_DUPLICATE",
+        message: "A timetable slot already exists for this section, day, start time, and effective date",
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -1190,6 +1198,14 @@ const updateTimetableSlot = async (req, res) => {
     });
   } catch (error) {
     console.error("Update timetable slot error:", error);
+
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        code: "TIMETABLE_SLOT_DUPLICATE",
+        message: "A timetable slot already exists for this section, day, start time, and effective date",
+      });
+    }
 
     return res.status(500).json({
       success: false,

@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS credit_payments (
+  payment_id VARCHAR(128) NOT NULL,
+  user_id INT UNSIGNED DEFAULT NULL,
+  faculty_id INT UNSIGNED NOT NULL,
+  credits DECIMAL(12,2) NOT NULL,
+  amount_paise BIGINT UNSIGNED NOT NULL,
+  currency CHAR(3) NOT NULL DEFAULT 'INR',
+  provider_order_id VARCHAR(128) DEFAULT NULL,
+  provider_payment_id VARCHAR(64) DEFAULT NULL,
+  status ENUM('PENDING','SUCCEEDED','FAILED','REFUNDED') NOT NULL DEFAULT 'PENDING',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (payment_id),
+  UNIQUE KEY uq_credit_payment_order (provider_order_id),
+  UNIQUE KEY uq_credit_payment_provider_payment (provider_payment_id),
+  KEY idx_credit_payment_faculty_created (faculty_id, created_at),
+  KEY idx_credit_payment_user_status (user_id, status),
+  CONSTRAINT fk_credit_payment_user_owner FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE SET NULL,
+  CONSTRAINT fk_credit_payment_faculty FOREIGN KEY (faculty_id) REFERENCES faculty (faculty_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

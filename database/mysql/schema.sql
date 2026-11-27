@@ -464,7 +464,7 @@ CREATE TABLE IF NOT EXISTS `timetable_slots` (
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`slot_id`),
-  UNIQUE KEY `uq_slot` (`section_id`,`day_of_week`,`start_time`,`effective_from`),
+  KEY `ix_slot_section` (`section_id`),
   KEY `ix_slot_room` (`classroom_id`,`day_of_week`,`start_time`),
   KEY `ix_slot_faculty` (`faculty_id`,`day_of_week`,`start_time`),
   CONSTRAINT `fk_slot_fac` FOREIGN KEY (`faculty_id`) REFERENCES `faculty` (`faculty_id`),
@@ -938,5 +938,190 @@ CREATE TABLE IF NOT EXISTS `academic_ml_jobs` (
   CONSTRAINT `fk_mljob_topic` FOREIGN KEY (`topic_id`) REFERENCES `academic_topics` (`topic_id`) ON DELETE CASCADE,
   CONSTRAINT `fk_mljob_user` FOREIGN KEY (`requested_by`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------------------------------
+-- Credit wallets and manual credit requests
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `credit_settings` (
+  `setting_key` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `setting_value` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `updated_by` int unsigned DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`setting_key`),
+  KEY `fk_credit_settings_actor` (`updated_by`),
+  CONSTRAINT `fk_credit_settings_actor` FOREIGN KEY (`updated_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `credit_settings` (`setting_key`, `setting_value`) VALUES
+  ('INITIAL_CREDITS', '100'),
+  ('AI_GENERATION_COST', '20'),
+  ('REQUEST_MIN_AMOUNT', '1'),
+  ('REQUEST_MAX_AMOUNT', '500'),
+  ('REQUEST_DEFAULT_AMOUNT', '20'),
+  ('PRICE_PER_CREDIT', '0'),
+  ('RAZORPAY_ENABLED', '0');
+
+CREATE TABLE IF NOT EXISTS `credit_policies` (
+  `policy_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `scope_type` enum('GLOBAL','DEPARTMENT','FACULTY') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `scope_id` int unsigned DEFAULT NULL,
+  `mode` enum('REQUEST_ONLY','PAY_ONLY','REQUEST_OR_PAY','CONTACT_ONLY') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `updated_by` int unsigned DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`policy_id`),
+  UNIQUE KEY `uq_credit_policy_scope` (`scope_type`,`scope_id`),
+  KEY `fk_credit_policy_actor` (`updated_by`),
+  CONSTRAINT `fk_credit_policy_actor` FOREIGN KEY (`updated_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `credit_policies` (`scope_type`, `scope_id`, `mode`)
+SELECT 'GLOBAL', NULL, 'REQUEST_OR_PAY'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `credit_policies` WHERE `scope_type` = 'GLOBAL' AND `scope_id` IS NULL
+);
+
+CREATE TABLE IF NOT EXISTS `credit_wallets` (
+  `wallet_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int unsigned NOT NULL,
+  `faculty_id` int unsigned NOT NULL,
+  `balance` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `held` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `version` int unsigned NOT NULL DEFAULT '1',
+  `last_activity_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`wallet_id`),
+  UNIQUE KEY `uq_credit_wallet_user` (`user_id`),
+  UNIQUE KEY `uq_credit_wallet_faculty` (`faculty_id`),
+  CONSTRAINT `fk_credit_wallet_faculty` FOREIGN KEY (`faculty_id`) REFERENCES `faculty` (`faculty_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_credit_wallet_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
+  CONSTRAINT `ck_credit_balance` CHECK (`balance` >= 0),
+  CONSTRAINT `ck_credit_held` CHECK (`held` >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `credit_requests` (
+  `request_id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `faculty_id` int unsigned NOT NULL,
+  `requested_amount` decimal(12,2) NOT NULL,
+  `approved_amount` decimal(12,2) DEFAULT NULL,
+  `reason` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('PENDING','APPROVED','REJECTED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `approver_id` int unsigned DEFAULT NULL,
+  `decided_at` timestamp NULL DEFAULT NULL,
+  `note` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `pending_key` varchar(191) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS (
+    CASE WHEN `status` = 'PENDING' THEN CAST(`faculty_id` AS CHAR) ELSE NULL END
+  ) STORED,
+  PRIMARY KEY (`request_id`),
+  UNIQUE KEY `uq_one_pending_request` (`pending_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `credit_ledger` (
+  `ledger_id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `wallet_id` int unsigned NOT NULL,
+  `type` enum('INITIAL_GRANT','HOLD','SPEND','RELEASE','ADMIN_TOPUP','BULK_TOPUP','REQUEST_APPROVED','PURCHASE','REFUND','ADJUSTMENT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount` decimal(12,2) NOT NULL,
+  `balance_after` decimal(12,2) NOT NULL,
+  `held_after` decimal(12,2) NOT NULL,
+  `reference_type` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reference_id` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `idempotency_key` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_id` int unsigned DEFAULT NULL,
+  `reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `faculty_notified_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`ledger_id`),
+  UNIQUE KEY `uq_credit_ledger_idempotency` (`wallet_id`,`idempotency_key`),
+  KEY `idx_credit_ledger_wallet_created` (`wallet_id`,`created_at`),
+  KEY `fk_credit_ledger_actor` (`actor_id`),
+  CONSTRAINT `fk_credit_ledger_actor` FOREIGN KEY (`actor_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_credit_ledger_wallet` FOREIGN KEY (`wallet_id`) REFERENCES `credit_wallets` (`wallet_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `credit_pool` (
+  `pool_id` tinyint unsigned NOT NULL,
+  `balance` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`pool_id`),
+  CONSTRAINT `ck_credit_pool_balance` CHECK (`balance` >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `credit_pool` (`pool_id`, `balance`) VALUES (1, 0.00);
+
+CREATE TABLE IF NOT EXISTS `credit_pool_ledger` (
+  `entry_id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `type` enum('PURCHASE','ALLOCATION') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount` decimal(12,2) NOT NULL,
+  `balance_after` decimal(12,2) NOT NULL,
+  `reference_type` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reference_id` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `idempotency_key` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_id` int unsigned DEFAULT NULL,
+  `reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`entry_id`),
+  UNIQUE KEY `uq_credit_pool_ledger_idempotency` (`idempotency_key`),
+  KEY `idx_credit_pool_ledger_created` (`created_at`),
+  CONSTRAINT `fk_credit_pool_ledger_actor` FOREIGN KEY (`actor_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `credit_pool_payments` (
+  `payment_id` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `admin_id` int unsigned NOT NULL,
+  `credits` decimal(12,2) NOT NULL,
+  `amount_paise` int unsigned NOT NULL,
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'INR',
+  `provider_order_id` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `provider_payment_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('PENDING','SUCCEEDED','FAILED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`payment_id`),
+  UNIQUE KEY `uq_credit_pool_payment_order` (`provider_order_id`),
+  UNIQUE KEY `uq_credit_pool_provider_payment` (`provider_payment_id`),
+  KEY `idx_credit_pool_payment_admin_status` (`admin_id`,`status`),
+  CONSTRAINT `fk_credit_pool_payment_admin` FOREIGN KEY (`admin_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `credit_payments` (
+  `payment_id` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `user_id` int unsigned DEFAULT NULL,
+  `faculty_id` int unsigned NOT NULL,
+  `credits` decimal(12,2) NOT NULL,
+  `amount_paise` bigint unsigned NOT NULL,
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'INR',
+  `provider_order_id` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `provider_payment_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('PENDING','SUCCEEDED','FAILED','REFUNDED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`payment_id`),
+  UNIQUE KEY `uq_credit_payment_order` (`provider_order_id`),
+  UNIQUE KEY `uq_credit_payment_provider_payment` (`provider_payment_id`),
+  KEY `idx_credit_payment_faculty_created` (`faculty_id`,`created_at`),
+  KEY `idx_credit_payment_user_status` (`user_id`,`status`),
+  CONSTRAINT `fk_credit_payment_user_owner` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_credit_payment_faculty` FOREIGN KEY (`faculty_id`) REFERENCES `faculty` (`faculty_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `credit_wallets` (`user_id`, `faculty_id`, `balance`, `held`, `last_activity_at`)
+SELECT u.user_id, f.faculty_id,
+       CAST(COALESCE((SELECT setting_value FROM `credit_settings` WHERE setting_key = 'INITIAL_CREDITS'), '100') AS DECIMAL(12,2)),
+       0, NOW()
+FROM `faculty` f
+JOIN `users` u ON u.faculty_id = f.faculty_id AND u.role = 'FACULTY';
+
+INSERT IGNORE INTO `credit_ledger`
+  (`wallet_id`, `type`, `amount`, `balance_after`, `held_after`, `reference_type`,
+   `reference_id`, `idempotency_key`, `reason`)
+SELECT w.wallet_id, 'INITIAL_GRANT', w.balance, w.balance, w.held,
+       'FACULTY_REGISTRATION', CAST(w.faculty_id AS CHAR),
+       CONCAT('INITIAL_GRANT:SCHEMA:', w.wallet_id),
+       'Initial faculty credit allocation'
+FROM `credit_wallets` w
+LEFT JOIN `credit_ledger` l
+  ON l.wallet_id = w.wallet_id AND l.type = 'INITIAL_GRANT'
+WHERE l.ledger_id IS NULL;
 
 SET FOREIGN_KEY_CHECKS = 1;

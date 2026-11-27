@@ -2143,9 +2143,11 @@ test("Timetable Conflict Detection: Faculty, Classroom, Section conflicts (409) 
     assert.equal(repeatDeact.status, 400);
   } finally {
     if (slotAId) {
+      await pool.query("DELETE FROM class_sessions WHERE slot_id = ?", [slotAId]);
       await pool.query("DELETE FROM timetable_slots WHERE slot_id = ?", [slotAId]);
     }
     if (slotBId) {
+      await pool.query("DELETE FROM class_sessions WHERE slot_id = ?", [slotBId]);
       await pool.query("DELETE FROM timetable_slots WHERE slot_id = ?", [slotBId]);
     }
   }
@@ -4850,6 +4852,13 @@ test("Faculty Module: Full Demographics, Auth Sync, Default Login & Soft Deactiv
   assert.equal(loginBody.data.role, "FACULTY");
   assert.equal(loginBody.data.faculty_id, facultyId);
 
+  const creditWalletRes = await fetch(`${baseUrl}/credits/wallet`, {
+    headers: { Authorization: `Bearer ${loginBody.token}` },
+  });
+  const creditWalletBody = await creditWalletRes.json();
+  assert.equal(creditWalletRes.status, 200);
+  assert.equal(Number(creditWalletBody.data.wallet.balance), 100);
+
   // 3. Update faculty demographics and verify synchronized to users table
   const updateRes = await fetch(`${baseUrl}/staff/t/${facultyId}`, {
     method: "PUT",
@@ -4885,6 +4894,12 @@ test("Faculty Module: Full Demographics, Auth Sync, Default Login & Soft Deactiv
   assert.equal(uRow[0].is_active, 0);
 
   // Clean up
+  await pool.query(
+    "DELETE FROM credit_ledger WHERE wallet_id IN (SELECT wallet_id FROM credit_wallets WHERE faculty_id = ?)",
+    [facultyId],
+  );
+  await pool.query("DELETE FROM credit_requests WHERE faculty_id = ?", [facultyId]);
+  await pool.query("DELETE FROM credit_wallets WHERE faculty_id = ?", [facultyId]);
   await pool.query("DELETE FROM users WHERE faculty_id = ?", [facultyId]);
   await pool.query("DELETE FROM faculty WHERE faculty_id = ?", [facultyId]);
 });
@@ -4967,4 +4982,419 @@ test("Classroom Module: Department Association, Validation & Infrastructure Quer
 
   // 5. Clean up
   await pool.query("DELETE FROM classrooms WHERE classroom_id = ?", [roomId]);
+});
+
+test("Faculty Quiz Credits: Requests, Admin Decisions, Grants, and Access Control", async () => {
+  const pool = require("../config/mysql");
+  const [facultyRows] = await pool.query(
+    `SELECT u.user_id, u.faculty_id
+     FROM users u
+     WHERE u.username = 'FAC001' AND u.role = 'FACULTY'
+     LIMIT 1`,
+  );
+  assert.equal(facultyRows.length, 1);
+  const { user_id: facultyUserId, faculty_id: facultyId } = facultyRows[0];
+  const facultyToken = jwt.sign(
+    { user_id: facultyUserId, username: "FAC001", role: "FACULTY", faculty_id: facultyId },
+    process.env.JWT_SECRET,
+    { expiresIn: "1h" },
+  );
+  const marker = "Credits feature integration test";
+  const originalRazorpayKeyId = process.env.RAZORPAY_KEY_ID;
+  const originalRazorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
+  const [settingsRows] = await pool.query(
+    `SELECT setting_key, setting_value, updated_by, updated_at
+     FROM credit_settings
+     WHERE setting_key IN (
+       'INITIAL_CREDITS', 'AI_GENERATION_COST', 'PRICE_PER_CREDIT', 'RAZORPAY_ENABLED'
+     )`,
+  );
+  const originalSettings = Object.fromEntries(
+    settingsRows.map((row) => [row.setting_key, row]),
+  );
+  const [policyRows] = await pool.query(
+    `SELECT policy_id, mode, updated_by, updated_at
+     FROM credit_policies WHERE scope_type = 'GLOBAL' AND scope_id IS NULL`,
+  );
+  const [creditPoolRows] = await pool.query(
+    "SELECT balance FROM credit_pool WHERE pool_id = 1",
+  );
+  const originalPoolBalance = Number(creditPoolRows[0].balance);
+
+  await pool.query(
+    `DELETE FROM credit_ledger
+     WHERE wallet_id IN (SELECT wallet_id FROM credit_wallets WHERE faculty_id = ?)
+       AND (reason = ? OR (reference_type = 'CREDIT_REQUEST' AND reference_id IN (
+         SELECT CAST(request_id AS CHAR) FROM credit_requests WHERE faculty_id = ? AND reason LIKE ?
+       )))`,
+    [facultyId, marker, facultyId, `${marker}%`],
+  );
+  await pool.query(
+    "DELETE FROM credit_requests WHERE faculty_id = ? AND reason LIKE ?",
+    [facultyId, `${marker}%`],
+  );
+  const [walletRows] = await pool.query(
+    `SELECT wallet_id, balance, held, version, last_activity_at
+     FROM credit_wallets WHERE faculty_id = ?`,
+    [facultyId],
+  );
+  const originalWallet = walletRows[0];
+  const originalBalance = Number(originalWallet.balance);
+  let requestIds = [];
+  let razorpayOrderId = null;
+  let poolOrderId = null;
+
+  try {
+    process.env.RAZORPAY_KEY_ID = "rzp_test_fixture";
+    process.env.RAZORPAY_KEY_SECRET = "fixture_secret";
+    await pool.query("UPDATE credit_pool SET balance = 1000 WHERE pool_id = 1");
+
+    const policyRes = await fetch(`${baseUrl}/credits/admin/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        acquisition_mode: "REQUEST_OR_PAY",
+        initial_credits: Number(originalSettings.INITIAL_CREDITS.setting_value),
+        generation_cost: Number(originalSettings.AI_GENERATION_COST.setting_value),
+        price_per_credit: Number(originalSettings.PRICE_PER_CREDIT.setting_value),
+        razorpay_enabled: true,
+      }),
+    });
+    assert.equal(policyRes.status, 200);
+    const insufficientPoolGrantRes = await fetch(`${baseUrl}/credits/admin/wallets/${facultyId}/grant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ amount: 1001, reason: `${marker} insufficient pool` }),
+    });
+    const insufficientPoolGrantBody = await insufficientPoolGrantRes.json();
+    assert.equal(insufficientPoolGrantRes.status, 409);
+    assert.equal(insufficientPoolGrantBody.code, "CREDIT_POOL_INSUFFICIENT");
+
+    const walletRes = await fetch(`${baseUrl}/credits/wallet`, {
+      headers: { Authorization: `Bearer ${facultyToken}` },
+    });
+    const walletBody = await walletRes.json();
+    assert.equal(walletRes.status, 200);
+    assert.equal(Number(walletBody.data.wallet.balance), originalBalance);
+    assert.equal(walletBody.data.settings.generation_cost, 20);
+
+    const requestRes = await fetch(`${baseUrl}/credits/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${facultyToken}` },
+      body: JSON.stringify({ amount: 20, reason: `${marker} approval path` }),
+    });
+    const requestBody = await requestRes.json();
+    assert.equal(requestRes.status, 201);
+    requestIds.push(requestBody.data.request_id);
+
+    const duplicateRequestRes = await fetch(`${baseUrl}/credits/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${facultyToken}` },
+      body: JSON.stringify({ amount: 10, reason: `${marker} duplicate` }),
+    });
+    assert.equal(duplicateRequestRes.status, 409);
+
+    const overviewRes = await fetch(`${baseUrl}/credits/admin/overview`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const overviewBody = await overviewRes.json();
+    assert.equal(overviewRes.status, 200);
+    assert.ok(overviewBody.data.pending_requests.some((request) => request.request_id === requestBody.data.request_id));
+
+    const approveRes = await fetch(`${baseUrl}/credits/admin/requests/${requestBody.data.request_id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ decision: "APPROVED" }),
+    });
+    assert.equal(approveRes.status, 200);
+    const approvedWalletRes = await fetch(`${baseUrl}/credits/wallet`, {
+      headers: { Authorization: `Bearer ${facultyToken}` },
+    });
+    const approvedWalletBody = await approvedWalletRes.json();
+    assert.equal(Number(approvedWalletBody.data.wallet.balance), originalBalance + 20);
+    assert.ok(approvedWalletBody.data.new_credits.some((credit) =>
+      Number(credit.amount) === 20 && credit.reason === `Approved credit request #${requestBody.data.request_id}`,
+    ));
+    const notificationId = approvedWalletBody.data.new_credits
+      .find((credit) => credit.reason === `Approved credit request #${requestBody.data.request_id}`).ledger_id;
+    const acknowledgeRes = await fetch(`${baseUrl}/credits/notifications/acknowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${facultyToken}` },
+      body: JSON.stringify({ ledger_ids: [notificationId] }),
+    });
+    assert.equal(acknowledgeRes.status, 200);
+    const acknowledgedWalletRes = await fetch(`${baseUrl}/credits/wallet`, {
+      headers: { Authorization: `Bearer ${facultyToken}` },
+    });
+    const acknowledgedWalletBody = await acknowledgedWalletRes.json();
+    assert.equal(acknowledgedWalletBody.data.new_credits.some((credit) => credit.ledger_id === notificationId), false);
+
+    const repeatedDecisionRes = await fetch(`${baseUrl}/credits/admin/requests/${requestBody.data.request_id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ decision: "APPROVED" }),
+    });
+    assert.equal(repeatedDecisionRes.status, 409);
+
+    const grantRes = await fetch(`${baseUrl}/credits/admin/wallets/${facultyId}/grant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ amount: 5, reason: marker }),
+    });
+    const grantBody = await grantRes.json();
+    assert.equal(grantRes.status, 200);
+    assert.equal(grantBody.data.balance, originalBalance + 25);
+
+    const rejectedRequestRes = await fetch(`${baseUrl}/credits/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${facultyToken}` },
+      body: JSON.stringify({ amount: 10, reason: `${marker} rejection path` }),
+    });
+    const rejectedRequestBody = await rejectedRequestRes.json();
+    assert.equal(rejectedRequestRes.status, 201);
+    requestIds.push(rejectedRequestBody.data.request_id);
+
+    const rejectRes = await fetch(`${baseUrl}/credits/admin/requests/${rejectedRequestBody.data.request_id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ decision: "REJECTED", decision_note: "Not approved" }),
+    });
+    assert.equal(rejectRes.status, 200);
+
+    const studentWalletRes = await fetch(`${baseUrl}/credits/wallet`, {
+      headers: { Authorization: `Bearer ${studentToken}` },
+    });
+    assert.equal(studentWalletRes.status, 403);
+
+    const paymentModeRes = await fetch(`${baseUrl}/credits/admin/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        acquisition_mode: "PAY_ONLY",
+        initial_credits: Number(originalSettings.INITIAL_CREDITS.setting_value),
+        generation_cost: 20,
+        price_per_credit: 1.25,
+        razorpay_enabled: true,
+      }),
+    });
+    assert.equal(paymentModeRes.status, 200);
+
+    const originalFetch = global.fetch;
+    const paymentFixtures = new Map();
+    global.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url === "https://api.razorpay.com/v1/orders") {
+        const orderRequest = JSON.parse(init.body);
+        assert.equal(orderRequest.currency, "INR");
+        const isPoolOrder = orderRequest.notes.purpose === "faculty_credit_pool";
+        const orderId = `order_fixture${isPoolOrder ? "pool" : "faculty"}${Date.now()}`;
+        const paymentId = `pay_fixture${isPoolOrder ? "pool" : "faculty"}${Date.now()}`;
+        paymentFixtures.set(orderId, { paymentId, amount: orderRequest.amount });
+        if (isPoolOrder) poolOrderId = orderId;
+        else razorpayOrderId = orderId;
+        return new Response(JSON.stringify({
+          id: orderId,
+          amount: orderRequest.amount,
+          currency: orderRequest.currency,
+        }), { status: 200 });
+      }
+      const paymentMatch = url.match(/^https:\/\/api\.razorpay\.com\/v1\/payments\/(pay_fixture[^/]+)(\/capture)?$/);
+      if (paymentMatch) {
+        const fixture = Array.from(paymentFixtures.entries())
+          .find(([, payment]) => payment.paymentId === paymentMatch[1]);
+        assert.ok(fixture);
+        const [orderId, payment] = fixture;
+        if (paymentMatch[2]) {
+          const captureRequest = JSON.parse(init.body);
+          assert.equal(captureRequest.amount, payment.amount);
+          return new Response(JSON.stringify({
+            id: payment.paymentId,
+            order_id: orderId,
+            amount: captureRequest.amount,
+            currency: captureRequest.currency,
+            status: "captured",
+            captured: true,
+          }), { status: 200 });
+        }
+        return new Response(JSON.stringify({
+          id: payment.paymentId,
+          order_id: orderId,
+          amount: payment.amount,
+          currency: "INR",
+          status: "authorized",
+          captured: false,
+        }), { status: 200 });
+      }
+      return originalFetch(input, init);
+    };
+
+    try {
+      const orderRes = await fetch(`${baseUrl}/credits/payments/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${facultyToken}` },
+        body: JSON.stringify({ amount: 20 }),
+      });
+      const orderBody = await orderRes.json();
+      assert.equal(orderRes.status, 201);
+      assert.equal(orderBody.data.amount, 2500);
+      assert.equal(orderBody.data.currency, "INR");
+      assert.equal(orderBody.data.credits, 20);
+      assert.equal(orderBody.data.test_mode, true);
+      assert.equal(Object.hasOwn(orderBody.data, "key_secret"), false);
+
+      const paymentId = paymentFixtures.get(razorpayOrderId).paymentId;
+      const signature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(`${razorpayOrderId}|${paymentId}`)
+        .digest("hex");
+      const verifyRes = await fetch(`${baseUrl}/credits/payments/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${facultyToken}` },
+        body: JSON.stringify({
+          razorpay_order_id: razorpayOrderId,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: signature,
+        }),
+      });
+      const verifyBody = await verifyRes.json();
+      assert.equal(verifyRes.status, 200);
+      assert.equal(verifyBody.data.credits_added, 20);
+      assert.equal(verifyBody.data.balance, originalBalance + 45);
+
+      const replayRes = await fetch(`${baseUrl}/credits/payments/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${facultyToken}` },
+        body: JSON.stringify({
+          razorpay_order_id: razorpayOrderId,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: signature,
+        }),
+      });
+      const replayBody = await replayRes.json();
+      assert.equal(replayRes.status, 200);
+      assert.equal(replayBody.data.balance, originalBalance + 45);
+
+      const invalidSignatureRes = await fetch(`${baseUrl}/credits/payments/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${facultyToken}` },
+        body: JSON.stringify({
+          razorpay_order_id: razorpayOrderId,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: "0".repeat(64),
+        }),
+      });
+      assert.equal(invalidSignatureRes.status, 400);
+
+      const poolOrderRes = await fetch(`${baseUrl}/credits/admin/payments/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ amount: 40 }),
+      });
+      const poolOrderBody = await poolOrderRes.json();
+      assert.equal(poolOrderRes.status, 201);
+      assert.equal(poolOrderBody.data.amount, 5000);
+      const poolPaymentId = paymentFixtures.get(poolOrderBody.data.order_id).paymentId;
+      const poolSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(`${poolOrderBody.data.order_id}|${poolPaymentId}`)
+        .digest("hex");
+      const poolVerifyRes = await fetch(`${baseUrl}/credits/admin/payments/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({
+          razorpay_order_id: poolOrderBody.data.order_id,
+          razorpay_payment_id: poolPaymentId,
+          razorpay_signature: poolSignature,
+        }),
+      });
+      const poolVerifyBody = await poolVerifyRes.json();
+      assert.equal(poolVerifyRes.status, 200);
+      assert.equal(poolVerifyBody.data.credits_added, 40);
+      assert.equal(poolVerifyBody.data.pool_balance, 1015);
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    const blockedRequestRes = await fetch(`${baseUrl}/credits/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${facultyToken}` },
+      body: JSON.stringify({ amount: 10, reason: `${marker} payment-only mode` }),
+    });
+    const blockedRequestBody = await blockedRequestRes.json();
+    assert.equal(blockedRequestRes.status, 409);
+    assert.equal(blockedRequestBody.code, "CREDIT_REQUEST_DISABLED");
+  } finally {
+    if (razorpayOrderId) {
+      await pool.query(
+        "DELETE FROM credit_ledger WHERE wallet_id = ? AND reference_type = 'RAZORPAY_ORDER' AND reference_id = ?",
+        [originalWallet.wallet_id, razorpayOrderId],
+      );
+      await pool.query(
+        "DELETE FROM credit_payments WHERE provider_order_id = ?",
+        [razorpayOrderId],
+      );
+    }
+    if (poolOrderId) {
+      await pool.query(
+        "DELETE FROM credit_pool_ledger WHERE reference_type = 'RAZORPAY_ORDER' AND reference_id = ?",
+        [poolOrderId],
+      );
+      await pool.query(
+        "DELETE FROM credit_pool_payments WHERE provider_order_id = ?",
+        [poolOrderId],
+      );
+    }
+    if (requestIds.length > 0) {
+      await pool.query(
+        `DELETE FROM credit_ledger
+         WHERE wallet_id = ? AND reference_type = 'CREDIT_REQUEST' AND reference_id IN (?)`,
+        [originalWallet.wallet_id, requestIds.map(String)],
+      );
+    }
+    await pool.query(
+      "DELETE FROM credit_requests WHERE faculty_id = ? AND reason LIKE ?",
+      [facultyId, `${marker}%`],
+    );
+    await pool.query(
+      "DELETE FROM credit_ledger WHERE wallet_id = ? AND reason = ?",
+      [originalWallet.wallet_id, marker],
+    );
+    await pool.query(
+      "DELETE FROM credit_pool_ledger WHERE idempotency_key LIKE 'POOL_ALLOCATION:request:%' AND reference_id IN (?)",
+      [requestIds.map((id) => `request:${id}`)],
+    );
+    await pool.query(
+      "DELETE FROM credit_pool_ledger WHERE reason = ?",
+      [marker],
+    );
+    await pool.query("UPDATE credit_pool SET balance = ? WHERE pool_id = 1", [originalPoolBalance]);
+    await pool.query(
+      `UPDATE credit_wallets
+       SET balance = ?, held = ?, version = ?, last_activity_at = ?
+       WHERE wallet_id = ?`,
+      [
+        originalWallet.balance,
+        originalWallet.held,
+        originalWallet.version,
+        originalWallet.last_activity_at,
+        originalWallet.wallet_id,
+      ],
+    );
+    for (const setting of Object.values(originalSettings)) {
+      await pool.query(
+        "UPDATE credit_settings SET setting_value = ?, updated_by = ?, updated_at = ? WHERE setting_key = ?",
+        [setting.setting_value, setting.updated_by, setting.updated_at, setting.setting_key],
+      );
+    }
+    for (const policy of policyRows) {
+      await pool.query(
+        "UPDATE credit_policies SET mode = ?, updated_by = ?, updated_at = ? WHERE policy_id = ?",
+        [policy.mode, policy.updated_by, policy.updated_at, policy.policy_id],
+      );
+    }
+    if (originalRazorpayKeyId === undefined) delete process.env.RAZORPAY_KEY_ID;
+    else process.env.RAZORPAY_KEY_ID = originalRazorpayKeyId;
+    if (originalRazorpayKeySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET;
+    else process.env.RAZORPAY_KEY_SECRET = originalRazorpayKeySecret;
+  }
 });
